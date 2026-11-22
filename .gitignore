@@ -1,0 +1,30 @@
+# Archivos Excel, CSV y documentos de texto locales o sensibles (PII / Corporativos)
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+*.txt
+
+# Prototipo antiguo con coordenadas fijas de paraderos
+pages/movilidad/mis rutas/
+
+# Variables de entorno y secretos locales
+.env
+.env.*
+!.env.example
+
+# Carpetas temporales, backups y papelera
+trash/
+**/trash/
+_local_backups/
+.vercel/
+.netlify/
+node_modules/
+
+# Archivos del sistema operativo y editores
+.DS_Store
+Thumbs.db
+~$*.xlsx
+~$*.xls
+*.log

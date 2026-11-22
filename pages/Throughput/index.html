@@ -1,0 +1,2258 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DataNexus - Throughput Secos y Frescos</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="../../css/styles.css">
+
+  <!-- Chart.js & Datalabels Plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    :root {
+      --glass-bg: rgba(255, 255, 255, 0.75);
+      --glass-bg-card: rgba(255, 255, 255, 0.82);
+      --glass-border: rgba(255, 255, 255, 0.7);
+      --glass-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.07), 0 0 0 1px rgba(255, 255, 255, 0.85) inset;
+      --glass-shadow-lg: 0 16px 45px -8px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+      --primary-gradient: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+      --accent-recibo: #2563eb;
+      --accent-despacho: #f97316;
+      --accent-inventario: #059669;
+    }
+
+    html {
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: inherit;
+    }
+
+    body {
+      background:
+        radial-gradient(at 12% 15%, rgba(99, 102, 241, 0.12) 0px, transparent 45%),
+        radial-gradient(at 88% 10%, rgba(236, 72, 153, 0.10) 0px, transparent 45%),
+        radial-gradient(at 50% 50%, rgba(56, 189, 248, 0.08) 0px, transparent 55%),
+        radial-gradient(at 85% 85%, rgba(16, 185, 129, 0.10) 0px, transparent 50%),
+        radial-gradient(at 10% 90%, rgba(249, 115, 22, 0.08) 0px, transparent 50%),
+        #f8fafc;
+      min-height: 100vh;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #0f172a;
+    }
+
+    .navbar-glass {
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(24px) saturate(190%);
+      -webkit-backdrop-filter: blur(24px) saturate(190%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 24px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .dashboard-container {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      max-width: 1440px;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      margin: 0 auto;
+    }
+
+    .dashboard-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .glass-card {
+      background: var(--glass-bg-card);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      box-shadow: var(--glass-shadow);
+      padding: 20px 22px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .glass-card:hover {
+      box-shadow: var(--glass-shadow-lg);
+    }
+
+    /* KPI Summary Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .kpi-card {
+      background: rgba(255, 255, 255, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 14px;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 15px -2px rgba(15, 23, 42, 0.04);
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+    }
+
+    .kpi-recibo::before {
+      background: #2563eb;
+    }
+
+    .kpi-despacho::before {
+      background: #f97316;
+    }
+
+    .kpi-inventario::before {
+      background: #059669;
+    }
+
+    .kpi-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .kpi-value {
+      font-size: clamp(1.35rem, 2.2vw, 1.7rem);
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+
+    .kpi-sub {
+      font-size: 0.8rem;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .kpi-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .badge-up {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .badge-down {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    /* Controls Bar */
+    .filter-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 14px 20px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .glass-select {
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #334155;
+      outline: none;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+    }
+
+    .glass-select:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    .glass-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #475569;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(255, 255, 255, 0.6);
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.8);
+    }
+
+    .glass-toggle input {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+      accent-color: #2563eb;
+    }
+
+    /* Tabs */
+    .glass-tabs-nav {
+      display: inline-flex;
+      gap: 6px;
+      background: rgba(226, 232, 240, 0.6);
+      padding: 5px;
+      border-radius: 12px;
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+    }
+
+    .glass-tab-btn {
+      padding: 10px 22px;
+      border-radius: 9px;
+      border: none;
+      background: transparent;
+      font-weight: 700;
+      font-size: 0.92rem;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .glass-tab-btn:hover {
+      color: #0f172a;
+      background: rgba(255, 255, 255, 0.4);
+    }
+
+    .glass-tab-btn.active {
+      background: #ffffff;
+      color: #2563eb;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12), 0 2px 4px rgba(0, 0, 0, 0.03);
+    }
+
+    .dashboard-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .tab-content {
+      display: none;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    /* Section Title */
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+      gap: 12px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .section-title {
+      font-size: clamp(1.2rem, 2vw, 1.55rem);
+      color: #0f172a;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* Chart Blocks */
+    .chart-block {
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 6px 20px -4px rgba(15, 23, 42, 0.05);
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      overflow: hidden;
+      /* Evita que canvas desborde horizontalmente */
+    }
+
+    .chart-block-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chart-block-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chart-badge-pill {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: #f1f5f9;
+      color: #475569;
+      white-space: nowrap;
+    }
+
+    .chart-container-medium {
+      position: relative;
+      height: 350px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    /* KPI Mode Toggle (Pill Switcher) */
+    .kpi-mode-toggle {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .kpi-mode-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 18px;
+      border-radius: 50px;
+      border: 1.5px solid #e2e8f0;
+      background: rgba(255, 255, 255, 0.7);
+      color: #64748b;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      backdrop-filter: blur(8px);
+    }
+
+    .kpi-mode-btn:hover {
+      background: rgba(255, 255, 255, 0.95);
+      border-color: #2563eb;
+      color: #2563eb;
+      box-shadow: 0 3px 12px rgba(37, 99, 235, 0.15);
+    }
+
+    .kpi-mode-btn.kpi-mode-active {
+      background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+      border-color: transparent;
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+    }
+
+    /* Granularity Toggle (Semanal vs Mensual) */
+    .time-granularity-toggle {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(241, 245, 249, 0.95);
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 3px;
+      gap: 3px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .granularity-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 18px;
+      border-radius: 9px;
+      border: none;
+      background: transparent;
+      color: #64748b;
+      font-weight: 700;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .granularity-btn:hover {
+      color: #1e293b;
+      background: rgba(255, 255, 255, 0.6);
+    }
+
+    .granularity-btn.active {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+
+    /* Month Selector Bar & Pills */
+    .month-selector-bar {
+      transition: all 0.25s ease;
+    }
+
+    .month-pills-wrap {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 4px 0;
+    }
+
+    .month-pill-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      border: 1.5px solid #cbd5e1;
+      background: #ffffff;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.16s ease;
+      user-select: none;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .month-pill-btn:hover {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.12);
+    }
+
+    .month-pill-btn.active {
+      background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+      border-color: #1e40af;
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.32);
+    }
+
+    .month-pill-btn.has-data {
+      font-weight: 800;
+    }
+
+    .month-pill-btn.has-data::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: #10b981;
+      border-radius: 50%;
+      display: inline-block;
+      margin-left: 2px;
+    }
+
+    .month-pill-btn.active.has-data::after {
+      background: #86efac;
+    }
+
+    .month-pill-btn.future-month {
+      border-style: dashed;
+      color: #94a3b8;
+      background: rgba(248, 250, 252, 0.7);
+    }
+
+    .month-pill-btn.future-month.active {
+      border-style: solid;
+      color: #ffffff;
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      border-color: #0284c7;
+    }
+
+    /* Table Styles */
+    .table-card {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin-top: 10px;
+      box-shadow: 0 6px 20px -4px rgba(15, 23, 42, 0.05);
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    .table-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .table-wrapper-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .table-scroll-hint {
+      display: none;
+      font-size: 0.73rem;
+      color: #2563eb;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .table-scroll-wrapper {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      background: #ffffff;
+      padding: 0;
+      margin: 0;
+      box-sizing: border-box;
+    }
+
+    .table-scroll-wrapper::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .table-scroll-wrapper::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 6px;
+    }
+
+    .table-scroll-wrapper::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 6px;
+    }
+
+    .table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    .data-table {
+      width: 100%;
+      min-width: 660px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.80rem;
+      margin: 0;
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 4px 7px;
+      text-align: right;
+      border-bottom: 1px solid #f1f5f9;
+      border-right: 1px solid #f1f5f9;
+      white-space: nowrap;
+      box-sizing: border-box;
+      line-height: 1.25;
+    }
+
+    .data-table th {
+      background-color: #f8fafc;
+      font-weight: 700;
+      text-align: center;
+      vertical-align: middle;
+      color: #475569;
+      border-bottom: 2px solid #e2e8f0;
+      border-right: 1px solid #e2e8f0;
+      padding: 5px 7px;
+    }
+
+    .data-table th .th-week {
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.15;
+    }
+
+    .data-table th .th-month {
+      font-size: 0.62rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 1px;
+    }
+
+    .data-table .col-sticky,
+    .data-table th.col-sticky,
+    .data-table td.col-sticky {
+      text-align: left;
+      font-weight: 700;
+      position: sticky;
+      left: 0;
+      background: #ffffff;
+      z-index: 10;
+      box-shadow: 3px 0 8px rgba(0, 0, 0, 0.08);
+      width: 160px;
+      min-width: 160px;
+      max-width: 160px;
+      box-sizing: border-box;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-right: 2px solid #e2e8f0;
+    }
+
+    .data-table thead .col-sticky {
+      background: #f8fafc;
+      z-index: 12;
+      border-bottom: 2px solid #cbd5e1;
+      width: 160px;
+      min-width: 160px;
+      max-width: 160px;
+    }
+
+    .data-table tr:hover td {
+      background-color: rgba(241, 245, 249, 0.6);
+    }
+
+    .data-table tr:hover .col-sticky {
+      background-color: #f1f5f9;
+    }
+
+    .col-promedio {
+      min-width: 105px;
+      background: #f8fafc;
+      font-weight: 800;
+      border-right: none;
+    }
+
+    /* ══════════════════════════════════════════════
+       COPY ACTION BAR & BUTTONS (CLICK PARA COPIAR)
+       ══════════════════════════════════════════════ */
+    .copy-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(14px);
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 10px 18px;
+      margin-bottom: 20px;
+      box-shadow: 0 3px 12px rgba(15, 23, 42, 0.04);
+    }
+
+    .copy-toolbar-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .copy-buttons-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-copy {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1.5px solid transparent;
+      outline: none;
+      user-select: none;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    }
+
+    .btn-copy:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-copy:active {
+      transform: translateY(0);
+    }
+
+    .btn-copy-recibo {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+    }
+
+    .btn-copy-recibo:hover {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #1d4ed8;
+    }
+
+    .btn-copy-despacho {
+      background: #fff7ed;
+      color: #c2410c;
+      border-color: #fed7aa;
+    }
+
+    .btn-copy-despacho:hover {
+      background: #ea580c;
+      color: #ffffff;
+      border-color: #c2410c;
+    }
+
+    .btn-copy-inventario {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+
+    .btn-copy-inventario:hover {
+      background: #059669;
+      color: #ffffff;
+      border-color: #047857;
+    }
+
+    .btn-chart-copy {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: #475569;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .btn-chart-copy:hover {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+    }
+
+    .btn-table-copy {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 13px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #1e293b;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .btn-table-copy:hover {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+      transform: translateY(-1px);
+    }
+
+    .btn-table-copy:active {
+      transform: translateY(0);
+    }
+
+    .btn-copy-slide-triple {
+      background: linear-gradient(135deg, #0f172a 0%, #2563eb 100%);
+      color: #ffffff;
+      border: 1px solid #0f172a;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
+      font-weight: 800;
+      letter-spacing: 0.2px;
+    }
+
+    .btn-copy-slide-triple:hover {
+      background: linear-gradient(135deg, #1e293b 0%, #1d4ed8 100%);
+      color: #ffffff;
+      border-color: #1d4ed8;
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.38);
+      transform: translateY(-1px);
+    }
+
+    .slide-export-title {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #0f172a;
+      text-align: center;
+      letter-spacing: 0.8px;
+      padding: 14px 0 16px 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-transform: uppercase;
+      background: #ffffff;
+    }
+
+    .charts-triple-wrapper {
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ══════════════════════════════════════════════
+       TREND BADGES & DIVISION TABLES
+       ══════════════════════════════════════════════ */
+    .trend-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-left: 5px;
+      vertical-align: middle;
+      line-height: 1;
+    }
+
+    .trend-arrow.trend-up {
+      color: #15803d;
+      background: #dcfce7;
+      border: 1px solid #bbf7d0;
+    }
+
+    .trend-arrow.trend-down {
+      color: #b91c1c;
+      background: #fee2e2;
+      border: 1px solid #fecaca;
+    }
+
+    .divisions-multi-table-wrap {
+      display: flex;
+      gap: 18px;
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 6px;
+    }
+
+    .division-process-table-card {
+      flex: 1;
+      min-width: 340px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    }
+
+    .division-process-header {
+      padding: 6px 12px;
+      font-weight: 800;
+      font-size: 0.82rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    .division-process-recibo {
+      background: #eff6ff;
+      color: #1e40af;
+      border-bottom-color: #bfdbfe;
+    }
+
+    .division-process-despacho {
+      background: #fff7ed;
+      color: #9a3412;
+      border-bottom-color: #fed7aa;
+    }
+
+    .division-process-inventario {
+      background: #ecfdf5;
+      color: #065f46;
+      border-bottom-color: #a7f3d0;
+    }
+
+    .division-view-pills {
+      display: inline-flex;
+      gap: 4px;
+      background: #f1f5f9;
+      padding: 3px;
+      border-radius: 8px;
+    }
+
+    .division-view-pill {
+      border: none;
+      background: transparent;
+      padding: 4px 10px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: #64748b;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .division-view-pill.active {
+      background: #ffffff;
+      color: #1e293b;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+
+    .data-table td.col-division-name,
+    .data-table th.col-division-name {
+      text-align: left;
+      font-weight: 700;
+      color: #1e293b;
+      min-width: 170px;
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .data-table td.col-division-code,
+    .data-table th.col-division-code,
+    .data-table .col-sticky.col-division-code {
+      text-align: center !important;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 800;
+      color: #1e293b;
+      min-width: 50px !important;
+      width: 50px !important;
+      max-width: 50px !important;
+      padding: 4px 2px !important;
+      letter-spacing: 0.3px;
+      font-size: 0.78rem;
+    }
+
+    /* Glosario de Divisiones a un Costado */
+    .division-section-content {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    .division-tables-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .division-glossary-sidebar {
+      width: 270px;
+      min-width: 250px;
+      flex-shrink: 0;
+    }
+
+    .divisions-glossary-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    }
+
+    .glossary-header {
+      padding: 6px 12px;
+      font-weight: 800;
+      font-size: 0.82rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #f8fafc;
+      border-bottom: 2px solid #e2e8f0;
+      color: #0f172a;
+    }
+
+    .glossary-body {
+      padding: 2px;
+    }
+
+    .glossary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+
+    .glossary-table th {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 700;
+      padding: 4px 6px;
+      font-size: 0.70rem;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .glossary-table td {
+      padding: 3px 6px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+      line-height: 1.2;
+    }
+
+    .glossary-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .glossary-table tr:hover td {
+      background-color: #f8fafc;
+    }
+
+    .glossary-row-highlight td {
+      background-color: #eff6ff;
+    }
+
+    .data-table tr.row-total td {
+      font-weight: 800;
+      background-color: #f8fafc;
+      border-top: 2px solid #cbd5e1;
+      border-bottom: 2px solid #cbd5e1;
+      color: #0f172a;
+    }
+
+    /* Toast styling */
+    .toast {
+      background: rgba(15, 23, 42, 0.94);
+      color: white;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+
+    .toast-success {
+      border-left: 4px solid #10b981;
+    }
+
+    .toast-info {
+      border-left: 4px solid #3b82f6;
+    }
+
+    .toast-danger {
+      border-left: 4px solid #ef4444;
+    }
+
+    /* Buttons */
+    .btn-glass-primary {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-glass-primary:hover {
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+      transform: translateY(-1px);
+    }
+
+    /* ══════════════════════════════════════════════
+       DIVISIONS ORGANIZATIONAL GRID (3 COLUMNAS x 4 FILAS)
+       ══════════════════════════════════════════════ */
+    .divisions-section {
+      background: var(--glass-bg-card);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      box-shadow: var(--glass-shadow);
+      padding: 20px 22px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .divisions-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      gap: 12px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .divisions-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .divisions-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .active-div-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+      color: #1e40af;
+      font-size: 0.82rem;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+      flex-wrap: wrap;
+    }
+
+    .btn-clear-filter {
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 3px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn-clear-filter:hover {
+      background: #1d4ed8;
+      transform: scale(1.03);
+    }
+
+    /* Grilla de 3 columnas fijas en desktop (4 filas x 3 columnas = 12 divisiones) */
+    .divisions-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      transition: all 0.3s ease;
+    }
+
+    /* Tarjeta de división unificada (sin división entre Secos y Frescos) */
+    .division-card {
+      background: rgba(255, 255, 255, 0.84);
+      border: 1.5px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.04);
+      transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      user-select: none;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .division-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px -3px rgba(37, 99, 235, 0.14);
+      background: rgba(255, 255, 255, 0.98);
+      border-color: #93c5fd;
+    }
+
+    .division-card.active-selected {
+      background: linear-gradient(135deg, rgba(239, 246, 255, 0.98) 0%, rgba(224, 231, 255, 0.92) 100%);
+      border: 2px solid #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2), 0 8px 22px -3px rgba(37, 99, 235, 0.25);
+      transform: translateY(-2px);
+    }
+
+    .division-card.dimmed {
+      opacity: 0.52;
+    }
+
+    .division-card.dimmed:hover {
+      opacity: 0.88;
+    }
+
+    .div-icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.15rem;
+      flex-shrink: 0;
+      background: rgba(37, 99, 235, 0.08);
+      color: #2563eb;
+      transition: all 0.2s ease;
+    }
+
+    .division-card.active-selected .div-icon-box {
+      background: #2563eb;
+      color: #ffffff;
+      box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+    }
+
+    .div-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .div-top-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .div-code-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 5px;
+      letter-spacing: 0.5px;
+      background: #f1f5f9;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
+      transition: all 0.2s ease;
+    }
+
+    .division-card.active-selected .div-code-badge {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+
+    .div-status-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #2563eb;
+      display: none;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .division-card.active-selected .div-status-tag {
+      display: inline-flex;
+    }
+
+    .div-name {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #1e293b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: -0.2px;
+    }
+
+    .division-card.active-selected .div-name {
+      color: #1d4ed8;
+    }
+
+    /* Banner informativo cuando hay una división filtrada */
+    .division-filter-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.92) 100%);
+      border: 1.5px solid #93c5fd;
+      border-radius: 12px;
+      padding: 10px 18px;
+      margin-bottom: 18px;
+      font-size: 0.88rem;
+      color: #1e40af;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+    }
+
+    .division-filter-banner .banner-text {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .division-filter-banner .banner-text strong {
+      font-weight: 800;
+      color: #1d4ed8;
+    }
+
+    .btn-clear-banner {
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-clear-banner:hover {
+      background: #1d4ed8;
+    }
+
+    .filter-pill-tag {
+      background: #ffffff;
+      border: 1px solid #bfdbfe;
+      color: #1e40af;
+      padding: 3px 9px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+
+    .filter-pill-tag strong {
+      color: #2563eb;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 800;
+    }
+
+    .filter-pill-tag .remove-div-pill {
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 0.72rem;
+      margin-left: 2px;
+      padding: 2px;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .filter-pill-tag .remove-div-pill:hover {
+      color: #ef4444;
+      background: #fee2e2;
+    }
+
+    /* ══════════════════════════════════════════════
+       RESPONSIVE BREAKPOINTS (Desktop, Laptop, Tablet, Mobile)
+       ══════════════════════════════════════════════ */
+    @media (max-width: 1180px) {
+      .divisions-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+      }
+
+      .glass-tabs-nav {
+        width: 100%;
+        display: flex;
+      }
+
+      .glass-tab-btn {
+        flex: 1;
+        justify-content: center;
+      }
+
+      .filter-group {
+        width: 100%;
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .kpi-grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .section-title {
+        font-size: 1.35rem;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .navbar-glass {
+        padding: 10px 14px;
+      }
+
+      .nav-brand .logo-subtitle {
+        display: none;
+      }
+
+      .nav-brand .logo-title {
+        font-size: 1.1rem;
+      }
+
+      .user-badge span {
+        max-width: 130px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dashboard-container {
+        padding: 14px 10px;
+        gap: 14px;
+      }
+
+      .divisions-section,
+      .glass-card,
+      .chart-block,
+      .table-card {
+        padding: 14px 12px;
+        border-radius: 12px;
+      }
+
+      .table-scroll-hint {
+        display: inline-flex;
+      }
+
+      .chart-container-medium {
+        height: 310px;
+      }
+
+      .chart-block-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .divisions-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .divisions-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .divisions-header-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .glass-select {
+        width: 100%;
+      }
+
+      .filter-group {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .glass-toggle {
+        justify-content: center;
+      }
+
+      .kpi-mode-toggle {
+        width: 100%;
+      }
+
+      .kpi-mode-btn {
+        flex: 1;
+        justify-content: center;
+      }
+
+      .btn-glass-primary {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .table-wrapper-title {
+        font-size: 0.82rem;
+      }
+
+      .data-table {
+        min-width: 660px;
+        font-size: 0.78rem;
+      }
+
+      .data-table .col-sticky,
+      .data-table th.col-sticky,
+      .data-table td.col-sticky {
+        width: 140px;
+        min-width: 140px;
+        max-width: 140px;
+        padding: 8px 10px;
+        font-size: 0.76rem;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 7px 8px;
+        font-size: 0.76rem;
+      }
+
+      .data-table th .th-week {
+        font-size: 0.76rem;
+      }
+
+      .data-table th .th-month {
+        font-size: 0.62rem;
+      }
+
+      .col-promedio {
+        min-width: 85px;
+        padding: 8px 9px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Navbar Glass -->
+  <header class="navbar navbar-glass">
+    <div class="nav-brand">
+      <div class="logo-icon" style="background: var(--primary-gradient); width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white;">
+        <i class="fa-solid fa-chart-line"></i>
+      </div>
+      <div>
+        <h1 class="logo-title" style="font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px;">DataNexus</h1>
+        <span class="logo-subtitle" style="font-size: 0.78rem; color: #64748b;">Throughput Analytics (Secos & Frescos)</span>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <a href="../../index.html" class="btn btn-outline-secondary btn-sm" style="border-radius: 8px; font-weight: 600;">
+        <i class="fa-solid fa-arrow-left"></i> Inicio
+      </a>
+      <div id="authContainer" class="auth-box">
+        <button id="btnGoogleLogin" class="btn btn-google" style="border-radius: 8px;">
+          <svg class="google-icon" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+          </svg>
+          Acceder
+        </button>
+        <div id="userInfo" class="user-profile hidden">
+          <div class="user-badge" style="background: rgba(241, 245, 249, 0.8); border-radius: 8px;">
+            <i class="fa-solid fa-circle-user text-primary"></i>
+            <span id="userEmail">Conectado</span>
+          </div>
+          <button id="btnGoogleLogout" class="btn btn-xs btn-outline-danger" title="Cerrar sesión">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-container">
+    <!-- Conexión Glass Card -->
+    <section class="glass-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 1.1rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-link text-primary"></i> Conexión Google Sheets
+        </h2>
+      </div>
+      <div id="connectBox" class="connection-flex" style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <div class="connection-input-area" style="flex: 1; min-width: 280px;">
+          <input type="text" id="sheetUrlInput" placeholder="Pega el enlace o ID del Google Sheet..." class="form-control" style="border-radius: 10px; height: 42px; width: 100%;">
+        </div>
+        <div class="connection-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button id="btnBrowseDrive" class="btn btn-secondary" style="border-radius: 10px; font-weight: 600;">
+            <i class="fa-solid fa-folder-open"></i> Explorar Drive
+          </button>
+          <button id="btnFetchData" class="btn-glass-primary">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Cargar Datos
+          </button>
+        </div>
+      </div>
+      <div id="connectionSuccessInfo" class="hidden" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; background:rgba(240, 253, 244, 0.8); border-radius:10px; border:1px solid #bbf7d0; margin-top: 5px;">
+        <span style="color: #15803d; font-weight: 600;"><i class="fa-solid fa-check-circle text-success"></i> Documento cargado: <strong id="connectedSheetName"></strong></span>
+        <button id="btnChangeSheet" class="btn btn-sm btn-outline-secondary" style="border-radius: 8px;"><i class="fa-solid fa-pen"></i> Cambiar</button>
+      </div>
+      <div id="loadingIndicator" class="hidden text-center" style="margin-top:14px; font-weight: 600; color: #2563eb;">
+        <i class="fa-solid fa-spinner fa-spin text-primary"></i> Sincronizando y procesando Throughput...
+      </div>
+    </section>
+
+    <!-- Modal Drive -->
+    <div id="drive-modal" class="modal-overlay hidden">
+      <div class="modal-content glass-card" style="max-width: 550px;">
+        <div class="modal-header" style="border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+          <h3 style="font-weight: 700; font-size: 1.15rem;"><i class="fa-solid fa-folder-open text-primary"></i> Seleccionar Hoja de Cálculo</h3>
+          <button id="close-modal-btn" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding-top: 15px;">
+          <input type="text" id="drive-search-input" class="form-control" style="margin-bottom:12px; border-radius: 8px;" placeholder="🔍 Buscar por nombre..." oninput="filterDriveList(this.value)">
+          <div id="drive-loading" class="hidden text-center" style="padding: 15px;"><i class="fa-solid fa-spinner fa-spin text-primary"></i> Cargando archivos...</div>
+          <ul id="drive-file-list" class="file-list" style="max-height: 280px; overflow-y: auto;"></ul>
+          <div id="drive-empty" class="hidden text-muted text-center mt-3">No se encontraron hojas.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Section -->
+    <div id="dashboardSection" class="dashboard-section hidden">
+
+      <!-- ══════════════════════════════════════════════
+           APARTADO DE DIVISIONES (1. DIVISIÓN) EN 3 COLUMNAS x 4 FILAS
+           ══════════════════════════════════════════════ -->
+      <section class="divisions-section" id="divisionsSection">
+        <div class="divisions-header">
+          <div>
+            <h2 class="divisions-title">
+              <span style="background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%); width: 12px; height: 26px; border-radius: 4px; display: inline-block;"></span>
+              <i class="fa-solid fa-sitemap text-primary"></i> 1. División - Estructura Corporativa
+              <span id="divTotalBadge" style="font-size:0.75rem; background:#e0e7ff; color:#3730a3; padding:2px 9px; border-radius:20px; font-weight:700;">12 Divisiones (4 Filas × 3 Columnas)</span>
+            </h2>
+            <p style="font-size: 0.82rem; color: #64748b; margin: 4px 0 0 0;">
+              Haz clic en una o varias divisiones para <strong>filtrar en simultáneo</strong> en los gráficos y KPIs. Haz clic de nuevo sobre una tarjeta para deseleccionarla.
+            </p>
+          </div>
+          <div class="divisions-header-actions">
+            <div id="activeDivisionIndicator" class="active-div-pill" style="display:none;">
+              <span><i class="fa-solid fa-filter text-primary"></i> Filtrando: <strong id="activeDivName">J01</strong></span>
+              <button id="btnClearDivisionFilter" class="btn-clear-filter" title="Restablecer total corporativo"><i class="fa-solid fa-xmark"></i> Quitar filtros</button>
+            </div>
+            <button id="btnSelectAllDivisions" class="btn btn-sm btn-outline-primary" style="border-radius:8px; font-weight:600; padding:5px 12px; font-size:0.78rem;" title="Seleccionar todas las 12 divisiones corporativas">
+              <i class="fa-solid fa-check-double"></i> Seleccionar todas
+            </button>
+            <button id="btnToggleDivisions" class="btn btn-sm btn-outline-secondary" style="border-radius:8px; font-weight:600; padding:5px 10px;" title="Minimizar / Expandir panel de divisiones">
+              <i class="fa-solid fa-chevron-up" id="iconToggleDivisions"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Grilla de 3 Columnas fijas (12 divisiones corporativas = 4 filas completas) -->
+        <div class="divisions-grid" id="divisionsGrid">
+          <!-- ── FILA 1 ── -->
+          <div class="division-card" data-code="J01" title="Filtrar por J01 - PGC COMESTIBLE">
+            <div class="div-icon-box"><i class="fa-solid fa-basket-shopping"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J01</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">PGC COMESTIBLE</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J02" title="Filtrar por J02 - PGC NO COMESTIBLE">
+            <div class="div-icon-box"><i class="fa-solid fa-pump-soap"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J02</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">PGC NO COMESTIBLE</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J03" title="Filtrar por J03 - CARNES Y PESCADOS">
+            <div class="div-icon-box"><i class="fa-solid fa-drumstick-bite"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J03</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">CARNES Y PESCADOS</div>
+            </div>
+          </div>
+
+          <!-- ── FILA 2 ── -->
+          <div class="division-card" data-code="J04" title="Filtrar por J04 - FRUTAS Y VERDURAS">
+            <div class="div-icon-box"><i class="fa-solid fa-apple-whole"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J04</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">FRUTAS Y VERDURAS</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J05" title="Filtrar por J05 - FLC">
+            <div class="div-icon-box"><i class="fa-solid fa-cheese"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J05</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">FLC</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J06" title="Filtrar por J06 - PANADERIA Y PASTELERIA">
+            <div class="div-icon-box"><i class="fa-solid fa-bread-slice"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J06</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">PANADERIA Y PASTELERIA</div>
+            </div>
+          </div>
+
+          <!-- ── FILA 3 ── -->
+          <div class="division-card" data-code="J07" title="Filtrar por J07 - PLATOS PREPARADOS">
+            <div class="div-icon-box"><i class="fa-solid fa-utensils"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J07</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">PLATOS PREPARADOS</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J08" title="Filtrar por J08 - VESTUARIO">
+            <div class="div-icon-box"><i class="fa-solid fa-shirt"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J08</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">VESTUARIO</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J09" title="Filtrar por J09 - HOGAR">
+            <div class="div-icon-box"><i class="fa-solid fa-couch"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J09</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">HOGAR</div>
+            </div>
+          </div>
+
+          <!-- ── FILA 4 ── -->
+          <div class="division-card" data-code="J10" title="Filtrar por J10 - BAZAR">
+            <div class="div-icon-box"><i class="fa-solid fa-shapes"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J10</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">BAZAR</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J11" title="Filtrar por J11 - ELECTROHOGAR">
+            <div class="div-icon-box"><i class="fa-solid fa-tv"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J11</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">ELECTROHOGAR</div>
+            </div>
+          </div>
+
+          <div class="division-card" data-code="J12" title="Filtrar por J12 - INSTITUCIONALES">
+            <div class="div-icon-box"><i class="fa-solid fa-building"></i></div>
+            <div class="div-info">
+              <div class="div-top-line">
+                <span class="div-code-badge">J12</span>
+                <span class="div-status-tag"><i class="fa-solid fa-circle-check"></i> Activo</span>
+              </div>
+              <div class="div-name">INSTITUCIONALES</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Controls & Filter Glass Bar -->
+      <div class="glass-card filter-bar">
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:12px;">
+          <!-- Tabs CD Secos / Frescos -->
+          <div class="glass-tabs-nav">
+            <button class="glass-tab-btn active" data-target="tab-secos">
+              <i class="fa-solid fa-box"></i> CD SECOS
+            </button>
+            <button class="glass-tab-btn" data-target="tab-frescos">
+              <i class="fa-solid fa-snowflake"></i> CD FRESCOS
+            </button>
+          </div>
+
+          <!-- Time Granularity Toggle: Semanal vs Mensual -->
+          <div class="time-granularity-toggle">
+            <button id="btnGranularityWeek" class="granularity-btn active" title="Ver análisis y gráficos a nivel semanal">
+              <i class="fa-solid fa-calendar-week"></i> Semanal
+            </button>
+            <button id="btnGranularityMonth" class="granularity-btn" title="Ver análisis y gráficos a nivel mensual (cajas totales por mes)">
+              <i class="fa-solid fa-calendar-days"></i> Mensual
+            </button>
+          </div>
+        </div>
+
+        <!-- Weekly Filter Group (visible only in weekly mode) -->
+        <div class="filter-group" id="weeklyFilterGroup">
+          <label for="weeksFilter" style="font-weight: 700; font-size: 0.88rem; color: #475569;">
+            <i class="fa-solid fa-calendar-week text-primary"></i> Rango Semanal:
+          </label>
+          <select id="weeksFilter" class="glass-select">
+            <option value="current_plus_month" selected>Semana actual + proyectadas del mes (Plan)</option>
+            <option value="4_plus_month">Últimas 4 semanas + proyectadas del mes</option>
+            <option value="8_plus_month">Últimas 8 semanas + proyectadas del mes</option>
+            <option value="month_current">Mes actual completo (cerradas + proyectadas)</option>
+            <option value="current">Semana actual (cerrada)</option>
+            <option value="4">Últimas 4 semanas (cerradas)</option>
+            <option value="8">Últimas 8 semanas (cerradas)</option>
+            <option value="12">Últimas 12 semanas</option>
+            <option value="16">Últimas 16 semanas</option>
+            <option value="all">Todas las semanas registradas</option>
+            <optgroup label="Proyección fija (+4 semanas)">
+              <option value="current_plus_4">Semana actual + 4 fijas</option>
+              <option value="4_plus_4">Últimas 4 semanas + 4 fijas</option>
+              <option value="8_plus_4">Últimas 8 semanas + 4 fijas</option>
+            </optgroup>
+          </select>
+
+          <!-- Toggle Semanas Proyectadas del Mes / Plan -->
+          <label class="glass-toggle" id="lblToggleFuture" title="Muestra las semanas proyectadas con las metas del Plan">
+            <input type="checkbox" id="toggleFutureWeeks" checked>
+            <span id="lblToggleFutureText"><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> Proyectadas del Mes</span>
+          </label>
+
+          <label class="glass-toggle" title="Muestra las cifras directamente encima de cada barra y punto para captura fácil">
+            <input type="checkbox" id="toggleDataLabels" checked>
+            <span><i class="fa-solid fa-tag text-primary"></i> Ver Números</span>
+          </label>
+
+          <!-- KPI Mode Toggle — aplica a ambos tabs (Secos y Frescos) -->
+          <div class="kpi-mode-toggle" style="margin-bottom:0;">
+            <button id="btnKpiPeriodo" class="kpi-mode-btn kpi-mode-active" title="Muestra la suma o promedio de todas las semanas del período">
+              <i class="fa-solid fa-calendar-range"></i> Período
+            </button>
+            <button id="btnKpiSemana" class="kpi-mode-btn" title="Muestra solo la última semana con datos reales">
+              <i class="fa-solid fa-calendar-day"></i> Sem. Actual
+            </button>
+          </div>
+
+          <button id="btnApplyFilters" class="btn-glass-primary" style="padding: 7px 15px; font-size: 0.88rem;">
+            <i class="fa-solid fa-rotate"></i> Actualizar
+          </button>
+        </div>
+
+        <!-- Monthly Filter Group (visible only in monthly mode) -->
+        <div class="filter-group" id="monthlyFilterGroup" style="display: none; width: 100%; flex-wrap: wrap; gap: 12px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label for="monthsPresetFilter" style="font-weight: 700; font-size: 0.88rem; color: #475569;">
+              <i class="fa-solid fa-calendar-days text-primary"></i> Rango Mensual:
+            </label>
+            <select id="monthsPresetFilter" class="glass-select">
+              <option value="ytd" selected>Año a la fecha (Meses con datos reales)</option>
+              <option value="last3">Últimos 3 meses</option>
+              <option value="last6">Últimos 6 meses</option>
+              <option value="all">Año completo (Ene - Dic / 12 meses)</option>
+              <option value="custom">Personalizado (Selección de meses)</option>
+            </select>
+          </div>
+
+          <label class="glass-toggle" title="Muestra las cifras directamente encima de cada barra mensual">
+            <input type="checkbox" id="toggleDataLabelsMonth" checked>
+            <span><i class="fa-solid fa-tag text-primary"></i> Ver Números</span>
+          </label>
+
+          <!-- KPI Mode Toggle for Month -->
+          <div class="kpi-mode-toggle" style="margin-bottom:0;">
+            <button id="btnKpiPeriodoMonth" class="kpi-mode-btn kpi-mode-active" title="Muestra el acumulado de todos los meses seleccionados">
+              <i class="fa-solid fa-calendar-range"></i> Período (Meses)
+            </button>
+            <button id="btnKpiSemanaMonth" class="kpi-mode-btn" title="Muestra las cifras del último mes cerrado con datos">
+              <i class="fa-solid fa-calendar-day"></i> Último Mes
+            </button>
+          </div>
+
+          <div style="display: flex; gap: 6px; align-items: center; margin-left: auto;">
+            <button id="btnSelectAllMonths" class="btn btn-sm btn-outline-primary" style="border-radius:8px; font-weight:600; padding:5px 12px; font-size:0.78rem;" title="Seleccionar los 12 meses">
+              <i class="fa-solid fa-check-double"></i> Todos (12)
+            </button>
+            <button id="btnSelectDataMonths" class="btn btn-sm btn-outline-secondary" style="border-radius:8px; font-weight:600; padding:5px 12px; font-size:0.78rem;" title="Seleccionar únicamente meses con datos">
+              <i class="fa-solid fa-calendar-check"></i> Con Datos
+            </button>
+          </div>
+        </div>
+
+        <!-- Interactive Month Pills Selector (activo en modo Semanal y Mensual) -->
+        <div id="monthSelectorContainer" class="month-selector-bar" style="display: block; width: 100%; border-top: 1px solid rgba(226, 232, 240, 0.8); padding-top: 10px; margin-top: 6px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span id="monthSelectorTitle" style="font-size: 0.82rem; font-weight: 700; color: #475569; display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-filter text-primary"></i> <span id="monthSelectorTitleText">Filtrar Semanas por Mes:</span>
+                <span id="monthCountBadge" style="font-size: 0.74rem; background: #e0e7ff; color: #3730a3; padding: 2px 8px; border-radius: 12px; font-weight: 700;">Semanas rodantes</span>
+              </span>
+              <div id="weeklyMonthQuickActions" style="display: flex; gap: 6px; align-items: center;">
+                <button id="btnQuickCurrentMonth" class="btn btn-sm btn-outline-primary" style="border-radius: 6px; font-weight: 700; font-size: 0.74rem; padding: 3px 9px;" title="Ver exclusivamente las semanas del mes en curso">
+                  <i class="fa-solid fa-calendar-check"></i> Mes Actual
+                </button>
+                <button id="btnResetRollingWeeks" class="btn btn-sm btn-outline-secondary" style="border-radius: 6px; font-weight: 600; font-size: 0.74rem; padding: 3px 9px;" title="Volver al rango de semanas rodantes seleccionado">
+                  <i class="fa-solid fa-arrow-rotate-left"></i> Semanas Rodantes
+                </button>
+              </div>
+            </div>
+            <span id="monthSelectorHint" style="font-size: 0.75rem; color: #64748b;">Haz clic en cualquier mes para ver sus semanas específicas (cerradas y proyectadas).</span>
+          </div>
+          <div class="month-pills-wrap" id="monthPillsWrap">
+            <!-- 12 pills rendered dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Copiado Rápido de Throughput (Click para Copiar Imagen) -->
+      <div class="copy-toolbar">
+        <div class="copy-toolbar-title">
+          <i class="fa-solid fa-camera text-primary"></i>
+          <span>Copiar Gráficos como Imagen para PowerPoint (PPT):</span>
+        </div>
+        <div class="copy-buttons-group">
+          <button id="btnCopySlideTriple" class="btn-copy btn-copy-slide-triple" onclick="window.copyTripleChartsSlideImage()" title="Copiar los 3 gráficos juntos con dimensiones idénticas para diapositiva de PowerPoint">
+            <i class="fa-solid fa-file-powerpoint"></i> Copiar Diapositiva 3 en 1 (Slide Completo para PPT)
+          </button>
+          <button id="btnCopyRecibo" class="btn-copy btn-copy-recibo" onclick="window.copyThroughputChartImage('recibo')" title="Copiar gráfico de Recibo como imagen para pegar en PowerPoint">
+            <i class="fa-solid fa-camera"></i> Copiar Recibo
+          </button>
+          <button id="btnCopyDespacho" class="btn-copy btn-copy-despacho" onclick="window.copyThroughputChartImage('despacho')" title="Copiar gráfico de Despacho como imagen para pegar en PowerPoint">
+            <i class="fa-solid fa-camera"></i> Copiar Despacho
+          </button>
+          <button id="btnCopyInventario" class="btn-copy btn-copy-inventario" onclick="window.copyThroughputChartImage('inventario')" title="Copiar gráfico de Inventario como imagen para pegar en PowerPoint">
+            <i class="fa-solid fa-camera"></i> Copiar Inventario
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab Secos -->
+      <div id="tab-secos" class="tab-content active">
+        <div class="section-header">
+          <h2 class="section-title">
+            <span style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); width: 12px; height: 28px; border-radius: 4px; display: inline-block;"></span>
+            THROUGHPUT-CD SECOS
+          </h2>
+          <span id="subtitleSecos" style="font-size: 0.85rem; font-weight: 600; color: #64748b; background: rgba(255,255,255,0.7); padding: 5px 12px; border-radius: 8px;">
+            Comparativa Evolutiva Semanal (2025 vs 2026) + Planes
+          </span>
+        </div>
+
+        <!-- Banner de División Filtrada en Secos -->
+        <div id="divFilterBannerSecos" class="division-filter-banner" style="display: none;"></div>
+
+        <!-- KPI Strip Secos -->
+        <div class="kpi-grid" id="kpiSecosContainer"></div>
+
+        <!-- Contenedor 3 en 1 de Gráficos Secos para Slide PPT -->
+        <div id="chartsSecosTriple" class="charts-triple-wrapper">
+          <div class="slide-export-title" id="slideTitleSecos" style="display: none;">THROUGHPUT – CD SECOS 2026</div>
+
+          <!-- 3 Gráficos Secos -->
+          <div class="chart-block" id="blockSecosRecibo">
+            <div class="chart-block-header">
+              <div class="chart-block-title">
+                <span style="color: #2563eb;"><i class="fa-solid fa-boxes-packing"></i></span> Entradas (Recibo)
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="badgeSecosRecibo" class="chart-badge-pill">Cajas / Semana</span>
+                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('recibo')" title="Copiar gráfico de Recibo como imagen para PowerPoint">
+                  <i class="fa-solid fa-camera"></i> Copiar Imagen
+                </button>
+              </div>
+            </div>
+            <div class="chart-container-medium"><canvas id="chartSecosRecibo"></canvas></div>
+          </div>
+
+          <div class="chart-block" id="blockSecosDespacho">
+            <div class="chart-block-header">
+              <div class="chart-block-title">
+                <span style="color: #f97316;"><i class="fa-solid fa-truck-fast"></i></span> Salidas (Despacho)
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="badgeSecosDespacho" class="chart-badge-pill">Cajas / Semana</span>
+                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('despacho')" title="Copiar gráfico de Despacho como imagen para PowerPoint">
+                  <i class="fa-solid fa-camera"></i> Copiar Imagen
+                </button>
+              </div>
+            </div>
+            <div class="chart-container-medium"><canvas id="chartSecosDespacho"></canvas></div>
+          </div>
+
+          <div class="chart-block" id="blockSecosInventario">
+            <div class="chart-block-header">
+              <div class="chart-block-title">
+                <span style="color: #059669;"><i class="fa-solid fa-warehouse"></i></span> Inventario Activo
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="badgeSecosInventario" class="chart-badge-pill">Stock en Cajas</span>
+                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('inventario')" title="Copiar gráfico de Inventario como imagen para PowerPoint">
+                  <i class="fa-solid fa-camera"></i> Copiar Imagen
+                </button>
+              </div>
+            </div>
+            <div class="chart-container-medium"><canvas id="chartSecosInventario"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Tabla Resumen Secos -->
+        <div class="glass-card table-card" id="tableSecosContainer"></div>
+
+        <!-- Tabla 2: Movimientos de Cajas por Divisiones (2026) -->
+        <div class="glass-card table-card" id="tableDivisionsSecosContainer" style="margin-top: 20px;"></div>
+      </div>
+
+      <!-- Tab Frescos -->
+      <div id="tab-frescos" class="tab-content">
+        <div class="section-header">
+          <h2 class="section-title">
+            <span style="background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%); width: 12px; height: 28px; border-radius: 4px; display: inline-block;"></span>
+            THROUGHPUT-CD FRESCOS
+          </h2>
+          <span id="subtitleFrescos" style="font-size: 0.85rem; font-weight: 600; color: #64748b; background: rgba(255,255,255,0.7); padding: 5px 12px; border-radius: 8px;">
+            Comparativa Evolutiva Semanal (2025 vs 2026) + Planes
+          </span>
+        </div>
+
+        <!-- Banner de División Filtrada en Frescos -->
+        <div id="divFilterBannerFrescos" class="division-filter-banner" style="display: none;"></div>
+
+        <!-- KPI Strip Frescos (usa el mismo toggle btnKpiPeriodo/btnKpiSemana definido en el tab Secos) -->
+        <div class="kpi-grid" id="kpiFrescosContainer"></div>
+
+        <!-- Contenedor 3 en 1 de Gráficos Frescos para Slide PPT -->
+        <div id="chartsFrescosTriple" class="charts-triple-wrapper">
+          <div class="slide-export-title" id="slideTitleFrescos" style="display: none;">THROUGHPUT – CD FRESCOS 2026</div>
+
+          <!-- 3 Gráficos Frescos -->
+          <div class="chart-block" id="blockFrescosRecibo">
+            <div class="chart-block-header">
+              <div class="chart-block-title">
+                <span style="color: #2563eb;"><i class="fa-solid fa-boxes-packing"></i></span> Entradas (Recibo)
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="badgeFrescosRecibo" class="chart-badge-pill">Cajas / Semana</span>
+                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('recibo')" title="Copiar gráfico de Recibo como imagen para PowerPoint">
+                  <i class="fa-solid fa-camera"></i> Copiar Imagen
+                </button>
+              </div>
+            </div>
+            <div class="chart-container-medium"><canvas id="chartFrescosRecibo"></canvas></div>
+          </div>
+
+          <div class="chart-block" id="blockFrescosDespacho">
+            <div class="chart-block-header">
+              <div class="chart-block-title">
+                <span style="color: #f97316;"><i class="fa-solid fa-truck-fast"></i></span> Salidas (Despacho)
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="badgeFrescosDespacho" class="chart-badge-pill">Cajas / Semana</span>
+                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('despacho')" title="Copiar gráfico de Despacho como imagen para PowerPoint">
+                  <i class="fa-solid fa-camera"></i> Copiar Imagen
+                </button>
+              </div>
+            </div>
+            <div class="chart-container-medium"><canvas id="chartFrescosDespacho"></canvas></div>
+          </div>
+
+          <div class="chart-block" id="blockFrescosInventario">
+            <div class="chart-block-header">
+              <div class="chart-block-title">
+                <span style="color: #059669;"><i class="fa-solid fa-warehouse"></i></span> Inventario Activo
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="badgeFrescosInventario" class="chart-badge-pill">Stock en Cajas</span>
+                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('inventario')" title="Copiar gráfico de Inventario como imagen para PowerPoint">
+                  <i class="fa-solid fa-camera"></i> Copiar Imagen
+                </button>
+              </div>
+            </div>
+            <div class="chart-container-medium"><canvas id="chartFrescosInventario"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Tabla Resumen Frescos -->
+        <div class="glass-card table-card" id="tableFrescosContainer"></div>
+
+        <!-- Tabla 2: Movimientos de Cajas por Divisiones Frescos (2026) -->
+        <div class="glass-card table-card" id="tableDivisionsFrescosContainer" style="margin-top: 20px;"></div>
+      </div>
+
+    </div>
+
+    <!-- Toast Container para Notificaciones -->
+    <div id="toastContainer" class="toast-container" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px;"></div>
+  </main>
+
+  <script src="../../js/config.js"></script>
+  <script src="../../js/google-sheets.js"></script>
+  <script src="app.js"></script>
+</body>
+
+</html>

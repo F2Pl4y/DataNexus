@@ -1,0 +1,520 @@
+/**
+ * Pivot Engine & Dynamic Table Builder for SheetPivot
+ * Gestiona el cálculo de tablas dinámicas (agrupaciones, sumas, promedios, etc.),
+ * tablas planas con filtros avanzados, y el renderizado HTML con capacidades de copiado.
+ */
+
+const PivotEngine = {
+  /**
+   * Aplica filtros a un conjunto de filas
+   * @param {Array<Object>} rows - Filas de datos
+   * @param {Array<{field: string, operator: string, value: string}>} filters - Filtros activos
+   * @param {string} globalSearch - Término de búsqueda general
+   * @returns {Array<Object>} Filas filtradas
+   */
+  applyFilters(rows, filters = [], globalSearch = '') {
+    if (!rows || rows.length === 0) return [];
+
+    let filtered = rows;
+
+    // 1. Filtro global de búsqueda
+    if (globalSearch && globalSearch.trim()) {
+      const term = globalSearch.trim().toLowerCase();
+      filtered = filtered.filter(row => {
+        return Object.values(row).some(v => {
+          if (v === null || v === undefined) return false;
+          return String(v).toLowerCase().includes(term);
+        });
+      });
+    }
+
+    // 2. Filtros específicos (Inteligencia Automática: OR en misma columna, AND cruzado)
+    if (filters && filters.length > 0) {
+      const filtersByField = {};
+      filters.forEach(f => {
+        if (!f.field || f.value === undefined || f.value === '') return;
+        if (!filtersByField[f.field]) filtersByField[f.field] = [];
+        filtersByField[f.field].push(f);
+      });
+
+      const fieldKeys = Object.keys(filtersByField);
+
+      if (fieldKeys.length > 0) {
+        filtered = filtered.filter(row => {
+          // Debe cumplir TODOS los campos distintos (AND)
+          return fieldKeys.every(field => {
+            const fieldFilters = filtersByField[field];
+            // Dentro del mismo campo, debe cumplir AL MENOS UNA condición (OR)
+            return fieldFilters.some(f => {
+              const cellVal = row[f.field];
+              const filterVal = String(f.value).toLowerCase();
+              const targetStr = cellVal !== null && cellVal !== undefined ? String(cellVal).toLowerCase() : '';
+              const numCell = Number(cellVal);
+              const numFilter = Number(f.value);
+
+              switch (f.operator) {
+                case 'equals': return targetStr === filterVal;
+                case 'contains': return targetStr.includes(filterVal);
+                case 'starts_with': return targetStr.startsWith(filterVal);
+                case 'not_equals': return targetStr !== filterVal;
+                case 'gt': return !isNaN(numCell) && !isNaN(numFilter) ? numCell > numFilter : false;
+                case 'gte': return !isNaN(numCell) && !isNaN(numFilter) ? numCell >= numFilter : false;
+                case 'lt': return !isNaN(numCell) && !isNaN(numFilter) ? numCell < numFilter : false;
+                case 'lte': return !isNaN(numCell) && !isNaN(numFilter) ? numCell <= numFilter : false;
+                default: return targetStr.includes(filterVal);
+              }
+            });
+          });
+        });
+      }
+    }
+
+    return filtered;
+  },
+
+  /**
+   * Formatea un valor individual según el tipo solicitado
+   */
+  formatCellValue(val, format) {
+    if (val === null || val === undefined || val === '') return '';
+    
+    if (format === 'text') return String(val);
+    
+    if (format === 'num0' || format === 'num2' || format === 'auto') {
+      const num = Number(val);
+      if (!isNaN(num) && val !== true && val !== false) {
+        if (format === 'num0') return num.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        if (format === 'num2') return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // auto format (evitar formatear IDs o años largos si es auto, pero es difícil adivinar. Por defecto aplicamos formato de número)
+        return Number.isInteger(num) ? num.toLocaleString(undefined) : num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    }
+    
+    if (format === 'datetime' || format === 'date') {
+      let d;
+      const num = Number(val);
+      if (!isNaN(num) && num > 20000 && num < 80000) {
+        // Serial de fecha de Excel (aprox 1954 a 2119)
+        d = new Date((num - 25569) * 86400 * 1000);
+      } else {
+        d = new Date(val);
+      }
+      if (!isNaN(d.getTime())) {
+        return format === 'date' ? d.toLocaleDateString() : d.toLocaleString();
+      }
+    }
+    
+    return val;
+  },
+
+  /**
+   * Realiza la agregación de una lista de valores según la función seleccionada
+   * @param {Array<any>} values 
+   * @param {'SUM'|'COUNT'|'AVG'|'MIN'|'MAX'} aggFunc 
+   * @returns {number}
+   */
+  calculateAggregation(values, aggFunc = 'SUM') {
+    if (!values || values.length === 0) return 0;
+
+    if (aggFunc === 'COUNT') {
+      return values.filter(v => v !== null && v !== undefined && v !== '').length;
+    }
+
+    // Convertir a numéricos válidos
+    const numbers = values
+      .map(v => {
+        if (typeof v === 'number') return v;
+        if (typeof v === 'string') {
+          const cleaned = v.replace(/[^0-9.-]+/g, '');
+          const n = parseFloat(cleaned);
+          return isNaN(n) ? null : n;
+        }
+        return null;
+      })
+      .filter(v => v !== null && !isNaN(v));
+
+    if (numbers.length === 0) return 0;
+
+    switch (aggFunc) {
+      case 'SUM': {
+        let sum = 0;
+        let c = 0; // Compensación de error (Kahan)
+        for (let i = 0; i < numbers.length; i++) {
+          let y = numbers[i] - c;
+          let t = sum + y;
+          c = (t - sum) - y;
+          sum = t;
+        }
+        return parseFloat(sum.toPrecision(15)); // Excel recorta en 15 dígitos significativos
+      }
+      case 'AVG': {
+        let sum = 0;
+        let c = 0;
+        for (let i = 0; i < numbers.length; i++) {
+          let y = numbers[i] - c;
+          let t = sum + y;
+          c = (t - sum) - y;
+          sum = t;
+        }
+        const avg = sum / numbers.length;
+        return parseFloat(avg.toPrecision(15));
+      }
+      case 'MIN':
+        return Math.min(...numbers);
+      case 'MAX':
+        return Math.max(...numbers);
+      default:
+        return 0;
+    }
+  },
+
+  buildPivotData(rows, config) {
+    const {
+      rowFields = [],
+      colFields = [],
+      valField = '',
+      aggFunc = 'SUM',
+      filters = [],
+      globalSearch = ''
+    } = config;
+
+    // 1. Aplicar filtros específicos a los datos BASE primero
+    const filteredRows = this.applyFilters(rows, filters, '');
+
+    if (rowFields.length === 0 && colFields.length === 0) {
+      const allValues = filteredRows.map(r => r[valField]);
+      const total = this.calculateAggregation(allValues, aggFunc);
+      return {
+        headers: ['Total General'],
+        matrixRows: [[this.formatNumber(total)]],
+        rowCount: filteredRows.length
+      };
+    }
+
+    // Estructuras de datos para O(N)
+    const pivotMatrix = new Map(); // rowKey -> Map(colKey -> Array<values>)
+    const colSet = new Set();
+    const rowTotalsMap = new Map(); // rowKey -> Array<values>
+    const colTotalsMap = new Map(); // colKey -> Array<values>
+    const allValues = [];
+
+    // 2. ÚNICA PASADA: Agrupar datos en O(N)
+    for (let i = 0; i < filteredRows.length; i++) {
+      const r = filteredRows[i];
+      
+      const rowKey = rowFields.length > 0 
+        ? rowFields.map(rf => (r[rf] !== null && r[rf] !== undefined ? String(r[rf]) : '(Vacío)')).join(' | ')
+        : 'Total';
+        
+      const colKey = colFields.length > 0
+        ? colFields.map(cf => (r[cf] !== null && r[cf] !== undefined ? String(r[cf]) : '(Vacío)')).join(' - ')
+        : 'Total';
+
+      const val = r[valField];
+
+      if (colFields.length > 0) colSet.add(colKey);
+
+      // Guardar en matriz principal
+      if (!pivotMatrix.has(rowKey)) {
+        pivotMatrix.set(rowKey, new Map());
+        rowTotalsMap.set(rowKey, []);
+      }
+      const rowMap = pivotMatrix.get(rowKey);
+      if (!rowMap.has(colKey)) {
+        rowMap.set(colKey, []);
+      }
+      rowMap.get(colKey).push(val);
+
+      // Acumuladores de filas y columnas
+      rowTotalsMap.get(rowKey).push(val);
+      
+      if (colFields.length > 0) {
+        if (!colTotalsMap.has(colKey)) colTotalsMap.set(colKey, []);
+        colTotalsMap.get(colKey).push(val);
+      }
+      
+      allValues.push(val);
+    }
+
+    // 3. Preparar encabezados
+    const pivotColValues = Array.from(colSet).sort();
+    const headers = [...rowFields];
+    if (pivotColValues.length > 0) {
+      headers.push(...pivotColValues);
+    }
+    headers.push(`Total (${aggFunc})`);
+
+    // 4. Construir matriz de salida
+    const matrixRows = [];
+    const sortedRowKeys = Array.from(pivotMatrix.keys()).sort();
+
+    for (let i = 0; i < sortedRowKeys.length; i++) {
+      const rowKey = sortedRowKeys[i];
+      const rowMap = pivotMatrix.get(rowKey);
+      const rowParts = rowFields.length > 0 ? rowKey.split(' | ') : [];
+      const matrixRow = [...rowParts];
+
+      if (pivotColValues.length > 0) {
+        for (let j = 0; j < pivotColValues.length; j++) {
+          const colKey = pivotColValues[j];
+          const cellValues = rowMap.get(colKey) || [];
+          const calculated = this.calculateAggregation(cellValues, aggFunc);
+          matrixRow.push(calculated);
+        }
+        // Añadir el total de la fila al final
+        const rowTotalVals = rowTotalsMap.get(rowKey) || [];
+        const rowTotal = this.calculateAggregation(rowTotalVals, aggFunc);
+        matrixRow.push(rowTotal);
+      } else {
+        // Sin columnas, la celda es el total de la fila (única columna de métrica)
+        const cellValues = rowMap.get('Total') || [];
+        const calculated = this.calculateAggregation(cellValues, aggFunc);
+        matrixRow.push(calculated);
+      }
+
+      matrixRows.push(matrixRow);
+    }
+
+    // 5. Fila de Totales Generales
+    const grandTotalRow = new Array(rowFields.length).fill('');
+    if (rowFields.length > 0) grandTotalRow[0] = 'Total General';
+
+    if (pivotColValues.length > 0) {
+      for (let j = 0; j < pivotColValues.length; j++) {
+        const colKey = pivotColValues[j];
+        const colVals = colTotalsMap.get(colKey) || [];
+        const total = this.calculateAggregation(colVals, aggFunc);
+        grandTotalRow.push(total);
+      }
+    }
+
+    const grandTotal = this.calculateAggregation(allValues, aggFunc);
+    grandTotalRow.push(grandTotal);
+
+    // 6. Filtro Búsqueda Global (Aplicado a la matriz VISIBLE resultante)
+    let finalMatrixRows = matrixRows;
+    if (globalSearch && globalSearch.trim()) {
+      const term = globalSearch.trim().toLowerCase();
+      finalMatrixRows = finalMatrixRows.filter(rowCells => {
+        return rowCells.some(cellVal => {
+          if (cellVal === null || cellVal === undefined) return false;
+          const cleanStr = String(cellVal).toLowerCase().replace(/,/g, '');
+          const normalStr = String(cellVal).toLowerCase();
+          return normalStr.includes(term) || cleanStr.includes(term);
+        });
+      });
+    }
+
+    return {
+      headers,
+      matrixRows: finalMatrixRows,
+      grandTotalRow,
+      rowCount: filteredRows.length
+    };
+  },
+
+  /**
+   * Construye los datos de una tabla plana / filtrada
+   * @param {Array<Object>} rows 
+   * @param {Object} config 
+   * @returns {Object}
+   */
+  buildFlatData(rows, config) {
+    const {
+      selectedColumns = [],
+      filters = [],
+      globalSearch = '',
+      filterLogic = 'AND',
+      sortBy = '',
+      sortOrder = 'asc',
+      limit = 200
+    } = config;
+
+    let filtered = this.applyFilters(rows, filters, globalSearch, filterLogic);
+
+    // Ordenamiento
+    if (sortBy) {
+      filtered.sort((a, b) => {
+        const valA = a[sortBy];
+        const valB = b[sortBy];
+        if (valA === valB) return 0;
+        if (valA === null || valA === undefined) return 1;
+        if (valB === null || valB === undefined) return -1;
+
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return sortOrder === 'asc' ? numA - numB : numB - numA;
+        }
+
+        const comp = String(valA).localeCompare(String(valB), undefined, { numeric: true });
+        return sortOrder === 'asc' ? comp : -comp;
+      });
+    }
+
+    const totalCount = filtered.length;
+    const paginated = limit > 0 ? filtered.slice(0, limit) : filtered;
+
+    return {
+      headers: selectedColumns,
+      rows: paginated,
+      totalCount
+    };
+  },
+
+  /**
+   * Formatea un número para visualización limpia
+   * @param {number} num 
+   * @returns {string}
+   */
+  formatNumber(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    // Si es entero, sin decimales
+    if (Number.isInteger(num)) {
+      return num.toLocaleString(undefined);
+    }
+    // Si tiene decimales, redondear a 2 dígitos
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  },
+
+  /**
+   * Escapa caracteres especiales HTML para prevenir vulnerabilidades XSS
+   * @param {any} text
+   * @returns {string}
+   */
+  escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  },
+
+  /**
+   * Genera el HTML de la tabla interactiva y configura los eventos de copiado
+   * @param {Object} tableModel - { id, type, headers, rows/matrixRows, grandTotalRow }
+   * @returns {string} HTML string
+   */
+  renderTableHtml(tableModel) {
+    const { id, type, headers, matrixRows, rows, grandTotalRow, totalCount, formats = {} } = tableModel;
+    const safeId = this.escapeHtml(id);
+
+    let html = `<div class="table-responsive-wrapper" id="wrapper_${safeId}">`;
+    html += `<table class="data-table" id="table_${safeId}">`;
+
+    // Encabezados
+    html += `<thead><tr>`;
+    headers.forEach((h, colIdx) => {
+      const currentFormat = formats[h] || 'auto';
+      const safeH = this.escapeHtml(h);
+      html += `
+        <th data-col-index="${colIdx}" data-col-name="${safeH}">
+          <div class="th-content">
+            <span>${safeH}</span>
+            <div class="th-actions">
+              <select class="format-select" data-col-name="${safeH}" onchange="window.updateColumnFormat('${safeId}', this.getAttribute('data-col-name'), this.value)" title="Formato de celda">
+                <option value="auto" ${currentFormat === 'auto' ? 'selected' : ''}>Auto</option>
+                <option value="text" ${currentFormat === 'text' ? 'selected' : ''}>Texto</option>
+                <option value="num0" ${currentFormat === 'num0' ? 'selected' : ''}>Num (0 dec)</option>
+                <option value="num2" ${currentFormat === 'num2' ? 'selected' : ''}>Num (2 dec)</option>
+                <option value="date" ${currentFormat === 'date' ? 'selected' : ''}>Fecha</option>
+              </select>
+              <button class="btn-col-copy" data-col-name="${safeH}" title="Copiar columna ${safeH}" onclick="PivotEngine.handleCopyColumnClick('${safeId}', ${colIdx}, this.getAttribute('data-col-name'))">
+                <i class="fa-solid fa-copy"></i>
+              </button>
+            </div>
+          </div>
+        </th>
+      `;
+    });
+    html += `</tr></thead>`;
+
+    // Cuerpo
+    html += `<tbody>`;
+
+    if (type === 'pivot') {
+      if (!matrixRows || matrixRows.length === 0) {
+        html += `<tr><td colspan="${headers.length}" style="text-align: center; color: var(--text-muted); padding: 2rem;">No hay registros que coincidan con los filtros</td></tr>`;
+      } else {
+        matrixRows.forEach(rowCells => {
+          html += `<tr>`;
+          rowCells.forEach((cellVal, cIdx) => {
+            const colName = headers[cIdx];
+            const isNumeric = typeof cellVal === 'number' || (typeof cellVal === 'string' && /^-?[0-9,.]+$/.test(cellVal.trim()));
+            const cssClass = isNumeric ? 'numeric' : '';
+            const rawAttr = ` data-value="${this.escapeHtml(cellVal !== null && cellVal !== undefined ? cellVal : '')}"`;
+            const displayVal = this.escapeHtml(this.formatCellValue(cellVal, formats[colName] || 'auto'));
+            html += `<td class="${cssClass}"${rawAttr}>${displayVal}</td>`;
+          });
+          html += `</tr>`;
+        });
+
+        // Total general
+        if (grandTotalRow && grandTotalRow.length > 0) {
+          html += `<tr class="total-row">`;
+          grandTotalRow.forEach((val, cIdx) => {
+            const colName = headers[cIdx];
+            const isNumeric = typeof val === 'number' || (typeof val === 'string' && /^-?[0-9,.]+$/.test(val.trim()));
+            const cssClass = isNumeric ? 'numeric' : '';
+            const rawAttr = ` data-value="${this.escapeHtml(val !== null && val !== undefined ? val : '')}"`;
+            const displayVal = this.escapeHtml(this.formatCellValue(val, formats[colName] || 'auto'));
+            html += `<td class="${cssClass}"${rawAttr}>${displayVal}</td>`;
+          });
+          html += `</tr>`;
+        }
+      }
+    } else {
+      // Tipo 'flat'
+      if (!rows || rows.length === 0) {
+        html += `<tr><td colspan="${headers.length}" style="text-align: center; color: var(--text-muted); padding: 2rem;">No hay registros que coincidan con los filtros</td></tr>`;
+      } else {
+        rows.forEach(rowObj => {
+          html += `<tr>`;
+          headers.forEach(h => {
+            const cellVal = rowObj[h];
+            const isNumeric = typeof cellVal === 'number';
+            const cssClass = isNumeric ? 'numeric' : '';
+            const rawAttr = ` data-value="${this.escapeHtml(cellVal !== null && cellVal !== undefined ? cellVal : '')}"`;
+            const displayVal = this.escapeHtml(this.formatCellValue(cellVal, formats[h] || 'auto'));
+            html += `<td class="${cssClass}"${rawAttr}>${displayVal}</td>`;
+          });
+          html += `</tr>`;
+        });
+      }
+    }
+
+    html += `</tbody></table></div>`;
+    return html;
+  },
+
+  /**
+   * Callback para copiar una columna completa de una tabla específica (incluye todas las filas y totales)
+   */
+  handleCopyColumnClick(tableId, colIndex, colName) {
+    const tableEl = document.getElementById(tableId) || document.getElementById(`table_${tableId}`);
+    if (!tableEl) return;
+
+    const rows = Array.from(tableEl.querySelectorAll('tbody tr'));
+    const values = [];
+    rows.forEach(tr => {
+      // Omitir fila si contiene un colspan (ej: mensaje de tabla vacía)
+      const firstTd = tr.querySelector('td');
+      if (firstTd && firstTd.hasAttribute('colspan')) return;
+
+      const td = tr.children[colIndex];
+      if (td) {
+        let rawVal = td.getAttribute('data-value');
+        if (rawVal === null || rawVal === '') rawVal = td.innerText.trim();
+        values.push(rawVal);
+      }
+    });
+
+    if (window.ClipboardUtil) {
+      window.ClipboardUtil.copyColumn(colName, values);
+    }
+  }
+};
+
+window.PivotEngine = PivotEngine;

@@ -1,0 +1,58 @@
+name: Deploy Pages con Secreto
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Inyectar Secretos de Configuración (Google, Gemini & Mapbox)
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+        run: |
+          if [ -n "$GOOGLE_CLIENT_ID" ]; then
+            sed -i "s|TU_CLIENT_ID_AQUI|${GOOGLE_CLIENT_ID}|g" js/config.js
+          fi
+          if [ -n "$GEMINI_API_KEY" ]; then
+            sed -i "s|TU_GEMINI_API_KEY_AQUI|${GEMINI_API_KEY}|g" js/config.js
+          fi
+          if [ -n "$MAPBOX_TOKEN" ]; then
+            sed -i "s|TU_MAPBOX_TOKEN_AQUI|${MAPBOX_TOKEN}|g" js/config.js
+          fi
+
+      - name: Limpiar archivos internos antes de publicar
+        run: |
+          rm -rf .git .github api vercel.json .gitignore .vercelignore .gitattributes "pages/movilidad/mis rutas"
+          find . -type f \( -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsm" -o -name "*.xlsb" -o -name "*.csv" -o -name "*.txt" \) -delete
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v4
+
+      - name: Subir archivos
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Publicar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

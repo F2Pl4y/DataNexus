@@ -1,0 +1,14 @@
+# Ignorar datos locales/sensibles y archivos de repositorio en despliegues de Vercel
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+*.txt
+pages/movilidad/mis rutas/
+trash/
+**/trash/
+.github/
+.git/
+.env
+.env.*

@@ -1,0 +1,5716 @@
+/**
+ * Script Principal para el Dashboard de Movilidad
+ */
+
+// Estado global de la aplicación
+const AppState = {
+  sheetId: '',
+  sheetUrl: '',
+  rawEmployees: [], // Todos los empleados combinados
+  filteredEmployees: [], // Empleados después de aplicar filtros
+  rawRegistroDiario: [], // Filas originales del registro diario
+  registroData: [], // Viajes procesados y agregados
+  fechasDisponibles: [], // Lista cronológica de fechas únicas
+  diasDisponibles: [], // Días de la semana que tienen movimiento real (> 0)
+  dateToDiaMap: new Map(), // Mapeo de Fecha normalizada -> Día de la semana
+  diaToDatesMap: new Map(), // Mapeo de Día de la semana -> Lista de fechas
+  fechaSeleccionada: '', // Fecha activa para el análisis diario
+  employeeMap: new Map(), // Mapa rápido de todos los empleados por DNI limpio y original
+  charts: {}, // Referencias a instancias de Chart.js
+  // Módulo de Rutas y Mapeo GPS
+  paraderosData: [],
+  paraderosSource: 'DRIVE', // Exclusivamente dinámico desde Google Drive
+  paraderosTabName: '',
+  sentidoRutaMapa: 'INGRESO', // 'INGRESO' (06:30 AM) o 'SALIDA' (04:30 PM)
+  mapInstance: null,
+  mapLines: {},
+  mapDecorators: {},
+  mapMarkers: {},
+  mapCards: {},
+  mapBounds: null,
+  mapDrawn: false,
+  routeDirectionsCache: {},
+  unmappedPassengers: [], // Pasajeros en Registro Diario no encontrados en BD
+  activeTab: 'operacion', // 'operacion', 'costos' o 'mapacalor'
+  // Módulo de Mapa de Calor Demográfico
+  heatMapInstance: null,
+  heatLayer: null,
+  heatMarkersLayer: null,
+  heatParaderosLayer: null,
+  heatInitialized: false,
+  semanaSeleccionada: 'TODAS', // Semana activa en la cabecera
+  semanasDisponibles: [], // Lista de semanas únicas
+  semanasInfoMap: new Map(), // Mapeo de semana -> { dates, dias, sampleDate }
+  semanaCostosSeleccionada: null, // Semana seleccionada para la hoja ANALISIS_COSTOS
+  rutasOficiales: null, // Catálogo de rutas oficiales desde BD RUTAS
+  tarifarioBuses: null, // Matriz de tarifas oficiales desde BD BUSES
+  mapboxToken: (window.APP_CONFIG && window.APP_CONFIG.MAPBOX_TOKEN && window.APP_CONFIG.MAPBOX_TOKEN !== 'TU_MAPBOX_TOKEN_AQUI') 
+    ? window.APP_CONFIG.MAPBOX_TOKEN.trim()
+    : (localStorage.getItem('DATANEXUS_MAPBOX_TOKEN') || '')
+};
+
+function getMapboxToken() {
+  if (window.APP_CONFIG && window.APP_CONFIG.MAPBOX_TOKEN && window.APP_CONFIG.MAPBOX_TOKEN !== 'TU_MAPBOX_TOKEN_AQUI') {
+    AppState.mapboxToken = window.APP_CONFIG.MAPBOX_TOKEN.trim();
+    return AppState.mapboxToken;
+  }
+  const saved = localStorage.getItem('DATANEXUS_MAPBOX_TOKEN');
+  if (saved && saved.trim()) {
+    AppState.mapboxToken = saved.trim();
+    return AppState.mapboxToken;
+  }
+  return AppState.mapboxToken || '';
+}
+
+// ==========================================
+// Catálogo Oficial y Tarifario Maestro (BD RUTAS y BD BUSES)
+// ==========================================
+
+// Catálogo base de las 14 rutas oficiales autorizadas en BD RUTAS
+const RUTAS_OFICIALES = new Set([
+  'RUTA 1', 'RUTA 2', 'RUTA 3', 'RUTA 4A', 'RUTA 4B', 'RUTA 5A',
+  'RUTA 5B', 'RUTA 5C', 'RUTA 6A', 'RUTA 6B', 'RUTA 6C', 'RUTA 7', 'RUTA 8', 'RUTA 9'
+]);
+
+// ==========================================================================
+// Catálogo Maestro de Horarios Oficiales de Rutas (Turno Mañana / Salida)
+// Fuente oficial de operación CD Huachipa
+// ==========================================================================
+const HORARIOS_OFICIALES_RUTAS = {
+  '1': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /ferreter[ií]a/i, horaIngreso: '06:10 a.m.' },
+      { patron: /saracoto/i, horaIngreso: '06:13 a.m.' },
+      { patron: /fame/i, soloSalida: true },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '2': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /arco.*san.*antonio|san\s*antonio/i, horaIngreso: '06:00 a.m.' },
+      { patron: /para[ií]so/i, horaIngreso: '06:05 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '3': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /sta\.?\s*rosa|santa\s*rosa/i, horaIngreso: '05:15 a.m.' },
+      { patron: /aurora/i, horaIngreso: '05:20 a.m.' },
+      { patron: /15\s*de\s*julio/i, horaIngreso: '05:25 a.m.' },
+      { patron: /villa\s*hermosa/i, horaIngreso: '05:28 a.m.' },
+      { patron: /kimberly/i, soloSalida: true },
+      { patron: /rompemuelle/i, horaIngreso: '05:30 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '4A': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /santa\s*anita|municipalidad.*santa\s*anita/i, horaIngreso: '05:35 a.m.' },
+      { patron: /colectora/i, horaIngreso: '05:37 a.m.' },
+      { patron: /huarochir[ií]/i, horaIngreso: '05:39 a.m.' },
+      { patron: /la\s*cultura|cultura/i, horaIngreso: '05:41 a.m.' },
+      { patron: /puruchuco/i, horaIngreso: '05:50 a.m.' },
+      { patron: /berl[ií]n/i, horaIngreso: '05:53 a.m.', soloIngreso: true },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '4B': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /panader[ií]a\s*marcela|marcela/i, horaIngreso: '05:47 a.m.' },
+      { patron: /c[eé]sar\s*vallejo|vallejo/i, horaIngreso: '05:50 a.m.' },
+      { patron: /esperanza/i, horaIngreso: '05:52 a.m.' },
+      { patron: /la\s*cruz|cruz/i, horaIngreso: '05:54 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '5A': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /puente.*[aá]ngeles|[aá]ngeles/i, horaIngreso: '05:25 a.m.' },
+      { patron: /ramiro\s*prial[eé]|prial[eé]/i, horaIngreso: '05:28 a.m.' },
+      { patron: /girasoles/i, horaIngreso: '05:30 a.m.' },
+      { patron: /ñaña/i, horaIngreso: '05:38 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '5B': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /huayc[aá]n/i, horaIngreso: '05:35 a.m.' },
+      { patron: /horacio/i, horaIngreso: '05:40 a.m.' },
+      { patron: /gloria\s*grande/i, horaIngreso: '05:43 a.m.' },
+      { patron: /san\s*juan/i, horaIngreso: '05:45 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '5C': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /sta\.?\s*clara|santa\s*clara/i, horaIngreso: '05:55 a.m.' },
+      { patron: /estadio.*huachipa|estadio/i, horaIngreso: '06:05 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '6A': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /bay[oó]var/i, horaIngreso: '05:30 a.m.' },
+      { patron: /san\s*mart[ií]n/i, horaIngreso: '05:35 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '6B': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /canto\s*rey/i, horaIngreso: '05:37 a.m.' },
+      { patron: /san\s*carlos/i, horaIngreso: '05:45 a.m.' },
+      { patron: /17.*pr[oó]ceres|pr[oó]ceres/i, horaIngreso: '05:48 a.m.' },
+      { patron: /hacienda/i, horaIngreso: '05:50 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  },
+  '6C': {
+    salidaCD: '04:30 p.m.',
+    llegadaCD: '06:30 a.m.',
+    paraderos: [
+      { patron: /celima/i, horaIngreso: '05:45 a.m.' },
+      { patron: /puente\s*nuevo/i, horaIngreso: '05:55 a.m.' },
+      { patron: /pajat[eé]n/i, horaIngreso: '05:58 a.m.' },
+      { patron: /campoy/i, horaIngreso: '06:02 a.m.' },
+      { patron: /calle\s*8/i, horaIngreso: '06:06 a.m.' },
+      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
+    ]
+  }
+};
+
+function obtenerInfoHorarioParadero(rutaId, nombreParadero, rawHora) {
+  const normRuta = String(rutaId || '').trim().toUpperCase().replace(/^RUTA\s+/i, '');
+  const configRuta = HORARIOS_OFICIALES_RUTAS[normRuta];
+
+  // Si en la hoja de Google Sheet viene una hora explícita, la usamos preferencialmente
+  let horaIngreso = rawHora ? String(rawHora).trim() : '';
+  let soloSalida = false;
+  let soloIngreso = false;
+  let horaSalida = '';
+
+  const nombreNorm = String(nombreParadero || '').toLowerCase();
+  if (nombreNorm.includes('solo salida')) soloSalida = true;
+  if (nombreNorm.includes('solo ingreso')) soloIngreso = true;
+
+  if (configRuta && configRuta.paraderos) {
+    for (const p of configRuta.paraderos) {
+      if (p.patron && p.patron.test(nombreNorm)) {
+        if (!horaIngreso && p.horaIngreso) horaIngreso = p.horaIngreso;
+        if (p.soloSalida) soloSalida = true;
+        if (p.soloIngreso) soloIngreso = true;
+        if (p.horaSalida) horaSalida = p.horaSalida;
+        break;
+      }
+    }
+  }
+
+  // Identificar si es el Centro de Distribución principal
+  const esCD = /huachipa|cd\s*huachipa|cd\s*central/i.test(nombreNorm);
+  if (esCD) {
+    if (!horaIngreso) horaIngreso = '06:30 a.m.';
+    if (!horaSalida) horaSalida = '04:30 p.m.';
+  }
+
+  return { horaIngreso, horaSalida, soloSalida, soloIngreso, esCD };
+}
+
+// Matriz oficial de tarifas unitarias (TAX) y capacidades por tipo de unidad (BD BUSES)
+const TARIFARIO_BD_BUSES = {
+  'OMMNIBUS': { 'RUTA 1': 310, 'RUTA 2': 310, 'RUTA 3': 340, 'RUTA 4A': 350, 'RUTA 4B': 340, 'RUTA 5A': 370, 'RUTA 5B': 310, 'RUTA 5C': 290, 'RUTA 6A': 370, 'RUTA 6B': 360, 'RUTA 6C': 310, 'RUTA 7': 380, 'RUTA 8': 370, 'RUTA 9': 400, cap: 50 },
+  'BUS':      { 'RUTA 1': 310, 'RUTA 2': 310, 'RUTA 3': 340, 'RUTA 4A': 350, 'RUTA 4B': 340, 'RUTA 5A': 370, 'RUTA 5B': 310, 'RUTA 5C': 290, 'RUTA 6A': 370, 'RUTA 6B': 360, 'RUTA 6C': 310, 'RUTA 7': 380, 'RUTA 8': 370, 'RUTA 9': 400, cap: 50 },
+  'MINIBUS':  { 'RUTA 1': 290, 'RUTA 2': 290, 'RUTA 3': 330, 'RUTA 4A': 340, 'RUTA 4B': 330, 'RUTA 5A': 360, 'RUTA 5B': 300, 'RUTA 5C': 280, 'RUTA 6A': 360, 'RUTA 6B': 350, 'RUTA 6C': 300, 'RUTA 7': 370, 'RUTA 8': 360, 'RUTA 9': 380, cap: 30 },
+  'CUSTER':   { 'RUTA 1': 270, 'RUTA 2': 270, 'RUTA 3': 300, 'RUTA 4A': 310, 'RUTA 4B': 300, 'RUTA 5A': 350, 'RUTA 5B': 280, 'RUTA 5C': 250, 'RUTA 6A': 340, 'RUTA 6B': 340, 'RUTA 6C': 290, 'RUTA 7': 360, 'RUTA 8': 340, 'RUTA 9': 370, cap: 23 },
+  'SPRINTER': { 'RUTA 1': 250, 'RUTA 2': 250, 'RUTA 3': 280, 'RUTA 4A': 270, 'RUTA 4B': 260, 'RUTA 5A': 320, 'RUTA 5B': 250, 'RUTA 5C': 240, 'RUTA 6A': 330, 'RUTA 6B': 330, 'RUTA 6C': 280, 'RUTA 7': 340, 'RUTA 8': 300, 'RUTA 9': 350, cap: 16 },
+  'MINIVAN':  { 'RUTA 1': 230, 'RUTA 2': 230, 'RUTA 3': 250, 'RUTA 4A': 240, 'RUTA 4B': 230, 'RUTA 5A': 300, 'RUTA 5B': 240, 'RUTA 5C': 200, 'RUTA 6A': 300, 'RUTA 6B': 280, 'RUTA 6C': 250, 'RUTA 7': 330, 'RUTA 8': 290, 'RUTA 9': 320, cap: 10 },
+  'TAXI':     { 'RUTA 1': 120, 'RUTA 2': 120, 'RUTA 3': 180, 'RUTA 4A': 150, 'RUTA 4B': 140, 'RUTA 5A': 180, 'RUTA 5B': 140, 'RUTA 5C': 120, 'RUTA 6A': 180, 'RUTA 6B': 180, 'RUTA 6C': 180, 'RUTA 7': 220, 'RUTA 8': 220, 'RUTA 9': 300, cap: 4 }
+};
+
+function getTarifaBus(tipoBus, ruta) {
+  if (!ruta || ruta === 'Desconocido' || ruta === 'DESCONOCIDO') return 0;
+  const normTipo = String(tipoBus || 'BUS').trim().toUpperCase();
+  const normRuta = String(ruta || '').trim().toUpperCase();
+  const tabla = (AppState && AppState.tarifarioBuses) ? AppState.tarifarioBuses : TARIFARIO_BD_BUSES;
+  
+  const matchTipo = Object.keys(tabla).find(k => k === normTipo || normTipo.includes(k) || k.includes(normTipo));
+  if (matchTipo && tabla[matchTipo]) {
+    const tarifas = tabla[matchTipo];
+    for (const rKey in tarifas) {
+      if (rKey === 'cap') continue;
+      if (rKey === normRuta || normRuta.replace(/^RUTA\s+/, '') === rKey.replace(/^RUTA\s+/, '')) {
+        return tarifas[rKey];
+      }
+    }
+  }
+  return 0;
+}
+
+function getCapacidadBus(tipoBus) {
+  const normTipo = String(tipoBus || 'BUS').trim().toUpperCase();
+  const tabla = (AppState && AppState.tarifarioBuses) ? AppState.tarifarioBuses : TARIFARIO_BD_BUSES;
+  const matchTipo = Object.keys(tabla).find(k => k === normTipo || normTipo.includes(k) || k.includes(normTipo));
+  if (matchTipo && tabla[matchTipo] && tabla[matchTipo].cap) {
+    return tabla[matchTipo].cap;
+  }
+  if (normTipo.includes('MINIBUS')) return 30;
+  if (normTipo.includes('CUSTER')) return 23;
+  if (normTipo.includes('SPRINTER')) return 16;
+  if (normTipo.includes('MINIVAN')) return 10;
+  if (normTipo.includes('TAXI')) return 4;
+  return 50;
+}
+
+// Colores oficiales de Rutas de Movilidad
+const coloresRutas = {
+  '1': '#E6194B', '2': '#3CB44B', '3': '#FFE119', '4A': '#4363D8',
+  '4B': '#F58231', '5A': '#911EB4', '5C': '#42D4F4', '6A': '#F032E6',
+  '6B': '#BFEF45', '7': '#FABED4', '8': '#469990', '9': '#800000',
+  '6C': '#9A6324', '5B': '#000075',
+  'DESCONOCIDO': '#94a3b8', 'DESCONOCIDA': '#94a3b8'
+};
+
+const fallbackColors = ['#06b6d4', '#ec4899', '#8b5cf6', '#10b981', '#f97316', '#6366f1', '#14b8a6', '#f43f5e'];
+
+function getRutaColor(rutaId) {
+  const norm = String(rutaId || '').trim().toUpperCase().replace(/^RUTA\s+/, '');
+  if (norm === 'DESCONOCIDO' || norm === 'DESCONOCIDA' || norm === 'SIN RUTA') return '#94a3b8';
+  if (coloresRutas[norm]) return coloresRutas[norm];
+  let hash = 0;
+  for (let i = 0; i < norm.length; i++) hash = norm.charCodeAt(i) + ((hash << 5) - hash);
+  const idx = Math.abs(hash) % fallbackColors.length;
+  return fallbackColors[idx];
+}
+
+function crearIconoDePinColoreado(color, numeroVisual, esCD = false) {
+  if (esCD) {
+    const svgPin = `
+      <div class="pin-cd-wrapper" style="position:relative; display:inline-block; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.7));">
+        <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 0C7.16 0 0 7.16 0 16c0 11.5 16 26 16 26s16-14.5 16-26C32 7.16 24.84 0 16 0z" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
+          <circle cx="16" cy="15" r="10.5" fill="#ffffff"/>
+          <text x="16" y="19" text-anchor="middle" font-family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="900" fill="#dc2626">CD</text>
+        </svg>
+      </div>
+    `;
+    return L.divIcon({
+      html: svgPin,
+      className: 'pin-svg-cd',
+      iconSize: [32, 42],
+      iconAnchor: [16, 42]
+    });
+  }
+
+  const numStr = (numeroVisual !== undefined && numeroVisual !== null) ? String(numeroVisual) : '';
+  const fontSize = numStr.length > 2 ? 8 : (numStr.length > 1 ? 10 : 11);
+  const textY = fontSize > 10 ? 17.5 : 17;
+
+  const svgPin = `
+    <div class="pin-num-wrapper" style="position:relative; display:inline-block; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));">
+      <svg viewBox="0 0 28 38" width="28" height="38" xmlns="http://www.w3.org/2000/svg">
+        <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.27 21.73 0 14 0z" fill="${color}" stroke="#ffffff" stroke-width="1.8"/>
+        <circle cx="14" cy="13.5" r="9.5" fill="#ffffff"/>
+        <text x="14" y="${textY}" text-anchor="middle" font-family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif" font-size="${fontSize}" font-weight="800" fill="#0f172a">${numStr}</text>
+      </svg>
+    </div>
+  `;
+  return L.divIcon({
+    html: svgPin,
+    className: 'pin-svg-personalizado',
+    iconSize: [28, 38],
+    iconAnchor: [14, 38]
+  });
+}
+
+function generarLinkGoogle(coordsArray) {
+  if (!coordsArray || coordsArray.length < 2) return "#";
+  const origin = coordsArray[0];
+  const destination = coordsArray[coordsArray.length - 1];
+  const waypoints = coordsArray.slice(1, -1).join('|');
+
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+  if (waypoints) {
+    url += `&waypoints=${encodeURIComponent(waypoints)}`;
+  }
+  return url;
+}
+
+// ==========================================
+// Utilidades de Normalización y Datos
+// ==========================================
+
+function cleanDni(val) {
+  if (val === undefined || val === null) return '';
+  let s = String(val).trim().toUpperCase();
+  s = s.replace(/\.0+$/, ''); // Eliminar .0 de números exportados desde Excel
+  s = s.replace(/^PE/i, '');  // Quitar prefijo de código de país 'PE'
+  s = s.replace(/[^0-9A-Z]/g, ''); // Dejar solo caracteres alfanuméricos
+  return s;
+}
+
+function normalizeTipo(val) {
+  if (!val) return 'DESCONOCIDO';
+  const s = String(val).trim().toUpperCase();
+  if (s.includes('STAFF')) return 'STAFF';
+  if (s.includes('OPERAR')) return 'OPERARIO';
+  return s;
+}
+
+function parseCoordinate(val) {
+  if (val === undefined || val === null || val === '') return null;
+  if (typeof val === 'number') {
+    return isNaN(val) ? null : val;
+  }
+  let s = String(val).trim().replace(',', '.');
+  s = s.replace(/[^0-9.-]+/g, '');
+  const num = parseFloat(s);
+  if (isNaN(num) || num === 0) return null;
+  return num;
+}
+
+function calcularDistanciaHaversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radio de la Tierra en km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function getRowVal(row, candidates) {
+  if (!row) return '';
+  const rowKeys = Object.keys(row);
+  for (const cand of candidates) {
+    const candNorm = cand.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    for (const k of rowKeys) {
+      const kNorm = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (kNorm === candNorm && row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+        return row[k];
+      }
+    }
+  }
+  return '';
+}
+
+function parseDateDMY(dStr) {
+  if (!dStr) return 0;
+  const s = String(dStr).trim().split(' ')[0];
+  // Formato DD/MM/YYYY o DD-MM-YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) {
+    return new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10)).getTime();
+  }
+  // Formato YYYY/MM/DD o YYYY-MM-DD
+  const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (ymd) {
+    return new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10)).getTime();
+  }
+  // Número de serie de fecha de Excel (ej: 45455)
+  if (/^\d{5}$/.test(s)) {
+    return new Date(Math.round((parseInt(s, 10) - 25569) * 86400 * 1000)).getTime();
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+
+function normalizeDateStr(val) {
+  if (!val) return '';
+  const s = String(val).trim().split(' ')[0];
+  // Formato DD/MM/YYYY o DD-MM-YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, '0');
+    const month = dmy[2].padStart(2, '0');
+    const year = dmy[3];
+    return `${day}/${month}/${year}`;
+  }
+  // Formato YYYY/MM/DD o YYYY-MM-DD
+  const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (ymd) {
+    const year = ymd[1];
+    const month = ymd[2].padStart(2, '0');
+    const day = ymd[3].padStart(2, '0');
+    return `${day}/${month}/${year}`;
+  }
+  // Número de serie de Excel
+  if (/^\d{5}$/.test(s)) {
+    const date = new Date(Math.round((parseInt(s, 10) - 25569) * 86400 * 1000));
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const year = date.getUTCFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return s;
+}
+
+function normalizeDiaStr(dVal, fVal) {
+  let s = String(dVal || '').trim().toLowerCase();
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (s.startsWith('lun')) return 'Lunes';
+  if (s.startsWith('mar')) return 'Martes';
+  if (s.startsWith('mie')) return 'Miércoles';
+  if (s.startsWith('jue')) return 'Jueves';
+  if (s.startsWith('vie')) return 'Viernes';
+  if (s.startsWith('sab')) return 'Sábado';
+  if (s.startsWith('dom')) return 'Domingo';
+  // Si no está el texto del día pero hay fecha, calcularlo
+  if (fVal) {
+    const ts = parseDateDMY(fVal);
+    if (ts) {
+      const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      return dias[new Date(ts).getDay()];
+    }
+  }
+  return '';
+}
+
+function extractTurnoFromRow(row, rawFecha) {
+  const explicitTurno = String(getRowVal(row, ['TURNO', 'HORARIO', 'SENTIDO', 'GUARDIA']) || '').trim();
+  if (explicitTurno) return explicitTurno.toUpperCase();
+
+  // Revisar si hay hora en objeto Date
+  if (rawFecha instanceof Date && !isNaN(rawFecha.getTime())) {
+    const h = rawFecha.getHours();
+    return h < 12 ? 'MAÑANA' : (h < 19 ? 'TARDE' : 'NOCHE');
+  }
+
+  // Revisar si es número de serie de Excel con fracción horaria
+  if (typeof rawFecha === 'number' || /^\d+(\.\d+)?$/.test(String(rawFecha).trim())) {
+    const num = parseFloat(rawFecha);
+    if (num > 25569) {
+      const frac = num - Math.floor(num);
+      const h = Math.floor(frac * 24);
+      return h < 12 ? 'MAÑANA' : (h < 19 ? 'TARDE' : 'NOCHE');
+    }
+  }
+
+  // Buscar formato HH:mm o H:mm en columna HORA o en FECHA
+  const rawHora = getRowVal(row, ['HORA', 'HORA_VIAJE', 'TIME']);
+  const textToParse = String(rawHora || rawFecha || '').trim();
+  const timeMatch = textToParse.match(/(?:^|\s|[A-Za-z])(\d{1,2}):(\d{2})/);
+  if (timeMatch) {
+    const h = parseInt(timeMatch[1], 10);
+    return h < 12 ? 'MAÑANA' : (h < 19 ? 'TARDE' : 'NOCHE');
+  }
+  return '';
+}
+
+function buildDominantRouteMap(rows) {
+  const map = {};
+  if (!rows || !Array.isArray(rows)) return map;
+  rows.forEach(r => {
+    const rawF = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const f = normalizeDateStr(rawF);
+    const t = extractTurnoFromRow(r, rawF);
+    const rt = String(getRowVal(r, ['RUTA', 'RUTA ASIGNADA', 'LINEA']) || '').trim();
+    if (f && rt && rt.toUpperCase() !== 'SIN RUTA' && rt.toUpperCase() !== 'N/D') {
+      const normRt = rt.toUpperCase().startsWith('RUTA') ? rt.toUpperCase() : `RUTA ${rt.toUpperCase()}`;
+      const key = `${f}|${t}`;
+      if (!map[key]) map[key] = {};
+      map[key][normRt] = (map[key][normRt] || 0) + 1;
+    }
+  });
+
+  const finalDominant = {};
+  Object.keys(map).forEach(k => {
+    const routesObj = map[k];
+    let topRuta = '';
+    let maxC = -1;
+    Object.keys(routesObj).forEach(rt => {
+      if (routesObj[rt] > maxC) {
+        maxC = routesObj[rt];
+        topRuta = rt;
+      }
+    });
+    if (topRuta) finalDominant[k] = topRuta;
+  });
+  return finalDominant;
+}
+
+function validarEnCatalogoRutas(rStr) {
+  if (!rStr) return null;
+  let rNorm = String(rStr).trim().toUpperCase();
+  if (['SIN RUTA', 'N/D', 'DESCONOCIDO', 'DESCONOCIDA', '0', 'NONE', 'NULL', '-'].includes(rNorm)) return null;
+  if (!rNorm.startsWith('RUTA')) {
+    rNorm = `RUTA ${rNorm}`;
+  }
+  const catalogo = (AppState && AppState.rutasOficiales && AppState.rutasOficiales.size > 0) 
+    ? AppState.rutasOficiales 
+    : RUTAS_OFICIALES;
+  for (const validR of catalogo) {
+    if (validR.toUpperCase() === rNorm) return validR;
+  }
+  return null;
+}
+
+function resolveRutaFromRow(row, cleanPassengerDni, rawDni, dominantMap, fechaSoloDia, turnoVal) {
+  const rutaRaw = String(getRowVal(row, ['RUTA', 'RUTA ASIGNADA', 'LINEA']) || '').trim();
+
+  // 1. Si en Registro Diario la celda RUTA viene en blanco o vacía, clasificar como Desconocido (Sin Ruta Asignada)
+  if (!rutaRaw || ['SIN RUTA', 'N/D', 'DESCONOCIDO', 'DESCONOCIDA', '-', '0', 'NONE', 'NULL'].includes(rutaRaw.toUpperCase())) {
+    return 'Desconocido';
+  }
+
+  // 2. Si viene escrita, validar contra el catálogo oficial (BD RUTAS)
+  const valid = validarEnCatalogoRutas(rutaRaw);
+  if (valid) return valid;
+
+  // 3. Si tiene un texto no reconocido o fuera de catálogo
+  return 'Desconocido';
+}
+
+function getWeekBounds(dateDMYStr) {
+  const ts = parseDateDMY(dateDMYStr);
+  if (!ts) return null;
+  const d = new Date(ts);
+  const day = d.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+  // Lunes a Domingo (ISO 8601):
+  const diffToMonday = (day === 0 ? -6 : 1 - day);
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (dt) => `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}`;
+  return { 
+    monday, 
+    sunday, 
+    label: `Lun ${fmt(monday)} - Dom ${fmt(sunday)}` 
+  };
+}
+
+function updateFilterOptionsFromSemana(chosenSemana, keepSelections = false) {
+  const selDia = document.getElementById('filtroDia');
+  const selFecha = document.getElementById('filtroFecha');
+  if (!selDia || !selFecha) return;
+
+  const currentDia = selDia.value;
+  const rows = (chosenSemana === 'TODAS')
+    ? AppState.rawRegistroDiario
+    : AppState.rawRegistroDiario.filter(r => String(parseInt(getRowVal(r, ['SEMANA', 'SEM']), 10)) === String(chosenSemana));
+
+  const diasInSemana = new Set();
+  rows.forEach(r => {
+    const rawF = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const normF = normalizeDateStr(rawF);
+    const rawD = getRowVal(r, ['DÍA', 'DIA', 'DAY']);
+    const normD = normalizeDiaStr(rawD, normF);
+    if (normD) diasInSemana.add(normD);
+  });
+
+  const diasOrden = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  const activeDias = diasOrden.filter(d => diasInSemana.has(d));
+
+  selDia.innerHTML = `<option value="TODOS">Todos los Días de la Semana</option>`;
+  activeDias.forEach(d => {
+    selDia.innerHTML += `<option value="${d}">${d}</option>`;
+  });
+
+  if (keepSelections && activeDias.includes(currentDia)) {
+    selDia.value = currentDia;
+  } else {
+    selDia.value = 'TODOS';
+  }
+
+  updateFilterOptionsFromDia(selDia.value, chosenSemana, keepSelections);
+}
+
+function updateFilterOptionsFromDia(chosenDia, chosenSemana, keepSelections = false) {
+  const selFecha = document.getElementById('filtroFecha');
+  if (!selFecha) return;
+
+  const currentFecha = selFecha.value;
+
+  let rows = AppState.rawRegistroDiario;
+  if (chosenSemana !== 'TODAS') {
+    rows = rows.filter(r => String(parseInt(getRowVal(r, ['SEMANA', 'SEM']), 10)) === String(chosenSemana));
+  }
+
+  const fMap = new Map();
+  rows.forEach(r => {
+    const rawF = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const normF = normalizeDateStr(rawF);
+    const rawD = getRowVal(r, ['DÍA', 'DIA', 'DAY']);
+    const normD = normalizeDiaStr(rawD, normF);
+
+    if (chosenDia !== 'TODOS' && normD !== chosenDia) return;
+
+    if (normF && !fMap.has(normF)) {
+      fMap.set(normF, parseDateDMY(normF));
+    }
+  });
+
+  const fechas = Array.from(fMap.keys()).sort((a, b) => fMap.get(a) - fMap.get(b));
+
+  selFecha.innerHTML = `<option value="TODAS">Todas las Fechas de la Semana</option>`;
+  fechas.forEach(f => {
+    const diaName = AppState.dateToDiaMap.get(f) || '';
+    const label = diaName ? `${f} (${diaName})` : f;
+    selFecha.innerHTML += `<option value="${f}">${label}</option>`;
+  });
+
+  if (keepSelections && fechas.includes(currentFecha)) {
+    selFecha.value = currentFecha;
+  } else if (fechas.length === 1 && chosenDia !== 'TODOS') {
+    selFecha.value = fechas[0];
+  } else {
+    selFecha.value = 'TODAS';
+  }
+}
+
+function onFechaChanged() {
+  const selFecha = document.getElementById('filtroFecha');
+  const selDia = document.getElementById('filtroDia');
+  const selSemana = document.getElementById('filtroSemana');
+  if (!selFecha) return;
+
+  const valF = selFecha.value;
+  if (valF !== 'TODAS') {
+    const matchingRow = AppState.rawRegistroDiario.find(r => normalizeDateStr(getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA'])) === valF);
+    if (matchingRow) {
+      const rawD = getRowVal(matchingRow, ['DÍA', 'DIA', 'DAY']);
+      const normD = normalizeDiaStr(rawD, valF);
+      const semVal = String(parseInt(getRowVal(matchingRow, ['SEMANA', 'SEM']), 10));
+
+      if (selSemana && semVal && semVal !== 'NaN' && semVal !== '0') {
+        selSemana.value = semVal;
+        AppState.semanaSeleccionada = semVal;
+        AppState.semanaCostosSeleccionada = semVal;
+        const selSemTab2 = document.getElementById('selectSemanaCostos');
+        if (selSemTab2) selSemTab2.value = semVal;
+      }
+      if (selDia && normD) {
+        selDia.value = normD;
+      }
+    }
+  }
+  applyFilters();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateParaderosSourceBadge();
+  initUIEvents();
+  GoogleSheetsService.initAuth(); // Restaura token
+  checkAuthAndConfig();
+  initCharts();
+  initAiAssistant();
+  initTableScrollInteractions();
+});
+
+function initUIEvents() {
+  document.getElementById('btnGoogleLogin').addEventListener('click', () => {
+    GoogleSheetsService.requestAccessToken((success) => {
+      if (success) updateAuthUI(true);
+    });
+  });
+
+  document.getElementById('btnGoogleLogout').addEventListener('click', () => {
+    GoogleSheetsService.logout();
+    updateAuthUI(false);
+  });
+
+  document.getElementById('btnFetchData').addEventListener('click', () => {
+    fetchData();
+  });
+
+  const btnApply = document.getElementById('btnApplyFilters');
+  if(btnApply) {
+    btnApply.addEventListener('click', () => {
+      applyFilters();
+    });
+  }
+
+  // 1. Selector de Semana en cabecera
+  const selSem = document.getElementById('filtroSemana');
+  if (selSem) {
+    selSem.addEventListener('change', () => {
+      const valSem = selSem.value;
+      AppState.semanaSeleccionada = valSem;
+      AppState.semanaCostosSeleccionada = (valSem === 'TODAS') ? 'TODAS' : valSem;
+
+      // Sincronizar selector de Tab 2
+      const selSemTab2 = document.getElementById('selectSemanaCostos');
+      if (selSemTab2 && selSemTab2.value !== valSem) {
+        selSemTab2.value = valSem;
+      }
+
+      // Cascada a Día y Fecha
+      updateFilterOptionsFromSemana(valSem);
+      applyFilters();
+    });
+  }
+
+  // 2. Selector de Día en cabecera
+  const selDia = document.getElementById('filtroDia');
+  if (selDia) {
+    selDia.addEventListener('change', () => {
+      const valSem = document.getElementById('filtroSemana')?.value || 'TODAS';
+      updateFilterOptionsFromDia(selDia.value, valSem);
+      applyFilters();
+    });
+  }
+
+  // 3. Selector de Fecha en cabecera
+  const selFecha = document.getElementById('filtroFecha');
+  if (selFecha) {
+    selFecha.addEventListener('change', () => {
+      onFechaChanged();
+    });
+  }
+
+  // Chip Group Logic para multi-selección con actualización inmediata
+  document.querySelectorAll('.chip-group').forEach(group => {
+    if (group.id === 'chipIncluirSinBD') return; // Switch binario exclusivo manejado aparte
+
+    group.addEventListener('click', (e) => {
+      if (e.target.classList.contains('chip')) {
+        const isTodos = e.target.dataset.value === 'TODOS';
+        
+        if (isTodos) {
+          // Si hace clic en TODOS, deseleccionar los demás
+          group.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+          e.target.classList.add('active');
+        } else {
+          // Si hace clic en otro, deseleccionar TODOS
+          const todosChip = group.querySelector('.chip[data-value="TODOS"]');
+          if(todosChip) todosChip.classList.remove('active');
+          
+          // Toggle el botón actual
+          e.target.classList.toggle('active');
+          
+          // Si no queda nada seleccionado, forzar TODOS
+          if (group.querySelectorAll('.chip.active').length === 0) {
+            if(todosChip) todosChip.classList.add('active');
+          }
+        }
+        applyFilters(); // Aplicar filtros de forma reactiva e inmediata
+      }
+    });
+  });
+
+  // Switch binario exclusivo para incluir/excluir Pasajeros sin BD Maestra
+  const chipSinBDGroup = document.getElementById('chipIncluirSinBD');
+  if (chipSinBDGroup) {
+    chipSinBDGroup.addEventListener('click', (e) => {
+      const btn = e.target.closest('.chip');
+      if (!btn) return;
+      chipSinBDGroup.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      applyFilters();
+    });
+  }
+
+  const btnToggle = document.getElementById('btnToggleDetalle');
+  if(btnToggle) {
+    btnToggle.addEventListener('click', () => {
+      const container = document.getElementById('contenedorDetalleDistritos');
+      if (container.style.display === 'none') {
+        container.style.display = 'block';
+      } else {
+        container.style.display = 'none';
+      }
+    });
+  }
+
+  // Explorar Drive
+  document.getElementById('btnBrowseDrive').addEventListener('click', () => {
+    if (!GoogleSheetsService.isAuthenticated()) {
+      GoogleSheetsService.requestAccessToken((success) => {
+        if (success) {
+          updateAuthUI(true);
+          openDriveModal();
+        }
+      });
+    } else {
+      openDriveModal();
+    }
+  });
+
+  // Modal close
+  document.getElementById('close-modal-btn').addEventListener('click', () => {
+    document.getElementById('drive-modal').classList.add('hidden');
+  });
+
+  document.getElementById('drive-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'drive-modal') {
+      e.target.classList.add('hidden');
+    }
+  });
+
+  // Buscador de archivos en modal Drive
+  const driveSearchInput = document.getElementById('drive-search-input');
+  if (driveSearchInput) {
+    driveSearchInput.addEventListener('input', (e) => {
+      window.filterDriveList(e.target.value);
+    });
+  }
+
+  // Toggle Connection Panel
+  const toggleConnectionBtn = document.getElementById('toggleConnectionBtn');
+  if (toggleConnectionBtn) {
+    toggleConnectionBtn.addEventListener('click', () => {
+      const body = document.getElementById('connectionCardBody');
+      const icon = toggleConnectionBtn.querySelector('i');
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+      } else {
+        body.style.display = 'none';
+        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+      }
+    });
+  }
+
+  // Toggle Filters Panel
+  const toggleFiltersBtn = document.getElementById('toggleFiltersBtn');
+  if (toggleFiltersBtn) {
+    toggleFiltersBtn.addEventListener('click', () => {
+      const panel = document.getElementById('dashboardFilters');
+      const icon = toggleFiltersBtn.querySelector('i');
+      if (panel.style.display === 'none') {
+        panel.style.display = 'flex';
+        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+      } else {
+        panel.style.display = 'none';
+        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+      }
+    });
+  }
+
+  // Eventos del Modal de Mapa de Rutas y GPS
+  const btnOpenMap = document.getElementById('btnOpenMapModal');
+  if (btnOpenMap) {
+    btnOpenMap.addEventListener('click', () => {
+      openMapModal();
+    });
+  }
+
+  const btnCloseMap = document.getElementById('close-mapa-modal-btn');
+  if (btnCloseMap) {
+    btnCloseMap.addEventListener('click', () => {
+      closeMapModal();
+    });
+  }
+
+  const modalMapa = document.getElementById('mapa-modal');
+  if (modalMapa) {
+    modalMapa.addEventListener('click', (e) => {
+      if (e.target === modalMapa) {
+        closeMapModal();
+      }
+    });
+  }
+
+  const btnResetMap = document.getElementById('btnResetMapView');
+  if (btnResetMap) {
+    btnResetMap.addEventListener('click', () => {
+      resetearVistaMapa(true);
+    });
+  }
+
+  const selFiltroRutaMapa = document.getElementById('selectFiltroRutaMapa');
+  if (selFiltroRutaMapa) {
+    selFiltroRutaMapa.addEventListener('change', (e) => {
+      resaltarRutaEnMapa(e.target.value);
+    });
+  }
+
+  // Control de Sentido de Ruta en Mapa (Ingreso al CD vs Salida del CD)
+  const chipsSentido = document.querySelectorAll('#chipSentidoRuta .chip-sentido-btn');
+  chipsSentido.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nuevoSentido = btn.dataset.sentido;
+      if (!nuevoSentido || nuevoSentido === AppState.sentidoRutaMapa) return;
+
+      AppState.sentidoRutaMapa = nuevoSentido;
+      chipsSentido.forEach(b => b.classList.toggle('active', b === btn));
+
+      // Re-dibujar rutas y paraderos con el nuevo sentido
+      if (AppState.mapInstance) {
+        const rutaActual = document.getElementById('selectFiltroRutaMapa')?.value || 'TODAS';
+        dibujarRutasEnMapa();
+        if (rutaActual && rutaActual !== 'TODAS') {
+          setTimeout(() => resaltarRutaEnMapa(rutaActual), 50);
+        }
+      }
+    });
+  });
+
+  const btnTogglePanel = document.getElementById('btnTogglePanelRutas');
+  if (btnTogglePanel) {
+    btnTogglePanel.addEventListener('click', () => {
+      const panel = document.getElementById('panelIndicadoresRutas');
+      if (panel) {
+        const isCollapsed = panel.classList.toggle('collapsed');
+        btnTogglePanel.innerHTML = isCollapsed ? '<i class="fa-solid fa-chevron-left"></i>' : '<i class="fa-solid fa-chevron-right"></i>';
+        btnTogglePanel.title = isCollapsed ? 'Expandir panel' : 'Minimizar panel';
+      }
+    });
+  }
+
+  // Eventos del Modal Directorio de Empleados
+  const btnOpenEmp = document.getElementById('btnOpenEmployeesModal');
+  if (btnOpenEmp) {
+    btnOpenEmp.addEventListener('click', () => {
+      openEmployeesModal();
+    });
+  }
+
+  const btnCloseEmp = document.getElementById('close-modal-empleados');
+  if (btnCloseEmp) {
+    btnCloseEmp.addEventListener('click', () => {
+      document.getElementById('modal-empleados')?.classList.add('hidden');
+    });
+  }
+
+  const modalEmp = document.getElementById('modal-empleados');
+  if (modalEmp) {
+    modalEmp.addEventListener('click', (e) => {
+      if (e.target === modalEmp) modalEmp.classList.add('hidden');
+    });
+  }
+
+  const inputBuscarEmp = document.getElementById('inputBuscarEmpleado');
+  if (inputBuscarEmp) {
+    inputBuscarEmp.addEventListener('input', () => {
+      renderModalEmployees();
+    });
+  }
+
+  const filtroEmpTipo = document.getElementById('filtroModalEmpTipo');
+  if (filtroEmpTipo) {
+    filtroEmpTipo.addEventListener('change', () => {
+      renderModalEmployees();
+    });
+  }
+
+  const filtroEmpArea = document.getElementById('filtroModalEmpArea');
+  if (filtroEmpArea) {
+    filtroEmpArea.addEventListener('change', () => {
+      renderModalEmployees();
+    });
+  }
+
+  // Eventos del Modal Pasajeros No Contemplados en BD
+  const btnOpenUnm = document.getElementById('btnOpenUnmappedModal');
+  if (btnOpenUnm) {
+    btnOpenUnm.addEventListener('click', () => {
+      openUnmappedModal();
+    });
+  }
+
+  const btnCloseUnm = document.getElementById('close-modal-no-contemplados');
+  if (btnCloseUnm) {
+    btnCloseUnm.addEventListener('click', () => {
+      document.getElementById('modal-no-contemplados')?.classList.add('hidden');
+    });
+  }
+
+  const modalUnm = document.getElementById('modal-no-contemplados');
+  if (modalUnm) {
+    modalUnm.addEventListener('click', (e) => {
+      if (e.target === modalUnm) modalUnm.classList.add('hidden');
+    });
+  }
+
+  const inputBuscarUnm = document.getElementById('inputBuscarNoContemplado');
+  if (inputBuscarUnm) {
+    inputBuscarUnm.addEventListener('input', () => {
+      renderModalUnmapped();
+    });
+  }
+
+  const btnCopiarDnis = document.getElementById('btnCopiarDnisNoMapeados');
+  if (btnCopiarDnis) {
+    btnCopiarDnis.addEventListener('click', () => {
+      copiarDnisNoMapeados();
+    });
+  }
+
+  // Pestañas de Navegación del Dashboard
+  const btnTabOp = document.getElementById('btnTabOperacion');
+  if (btnTabOp) {
+    btnTabOp.addEventListener('click', () => switchDashboardTab('operacion'));
+  }
+  const btnTabCo = document.getElementById('btnTabCostos');
+  if (btnTabCo) {
+    btnTabCo.addEventListener('click', () => switchDashboardTab('costos'));
+  }
+  const btnTabCa = document.getElementById('btnTabMapaCalor');
+  if (btnTabCa) {
+    btnTabCa.addEventListener('click', () => switchDashboardTab('mapacalor'));
+  }
+
+  // Controles Interactivos del Mapa de Calor Demográfico
+  const setupHeatChipGroup = (containerId) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.addEventListener('click', (e) => {
+      const btn = e.target.closest('.chip');
+      if (!btn) return;
+      container.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      renderMapaCalorEmpleados();
+    });
+  };
+  setupHeatChipGroup('chipAreaCalor');
+  setupHeatChipGroup('chipTipoCalor');
+
+  const selDistCalor = document.getElementById('selectDistritoCalor');
+  if (selDistCalor) {
+    selDistCalor.addEventListener('change', (e) => {
+      renderMapaCalorEmpleados();
+      if (e.target.value !== 'TODOS') {
+        enfocarDistritoEnMapa(e.target.value);
+      } else {
+        if (AppState.heatMapInstance) {
+          AppState.heatMapInstance.flyTo([-12.015, -76.945], 11, { duration: 1.0 });
+        }
+      }
+    });
+  }
+
+  const toggleHeat = document.getElementById('toggleLayerHeat');
+  if (toggleHeat) {
+    toggleHeat.addEventListener('change', () => {
+      if (!AppState.heatMapInstance) return;
+      renderMapaCalorEmpleados();
+    });
+  }
+
+  const togglePoints = document.getElementById('toggleLayerPoints');
+  if (togglePoints) {
+    togglePoints.addEventListener('change', () => {
+      if (!AppState.heatMapInstance) return;
+      renderMapaCalorEmpleados();
+    });
+  }
+
+  const toggleParaderos = document.getElementById('toggleLayerParaderos');
+  if (toggleParaderos) {
+    toggleParaderos.addEventListener('change', () => {
+      if (!AppState.heatMapInstance) return;
+      renderMapaCalorEmpleados();
+    });
+  }
+
+  const sliderRadius = document.getElementById('sliderHeatRadius');
+  const labelRadius = document.getElementById('labelHeatRadius');
+  if (sliderRadius) {
+    sliderRadius.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (labelRadius) labelRadius.innerText = `${val}px`;
+      if (AppState.heatLayer) {
+        AppState.heatLayer.setOptions({ radius: val });
+      }
+    });
+  }
+
+  const btnRecenterHeat = document.getElementById('btnRecenterHeatMap');
+  if (btnRecenterHeat) {
+    btnRecenterHeat.addEventListener('click', () => {
+      if (AppState.heatMapInstance) {
+        AppState.heatMapInstance.flyTo([-12.015, -76.945], 11, { duration: 1.0 });
+      }
+      if (selDistCalor) {
+        selDistCalor.value = 'TODOS';
+        renderMapaCalorEmpleados();
+      }
+    });
+  }
+
+  // Selector de Semana en Análisis de Costos (sincronizado con cabecera)
+  const selSemCostos = document.getElementById('selectSemanaCostos');
+  if (selSemCostos) {
+    selSemCostos.addEventListener('change', (e) => {
+      const valSem = e.target.value;
+      const selSemHeader = document.getElementById('filtroSemana');
+      if (selSemHeader && selSemHeader.value !== valSem) {
+        selSemHeader.value = valSem;
+      }
+      AppState.semanaSeleccionada = valSem;
+      AppState.semanaCostosSeleccionada = valSem;
+      updateFilterOptionsFromSemana(valSem);
+      applyFilters();
+    });
+  }
+}
+
+async function openDriveModal() {
+  const modal = document.getElementById('drive-modal');
+  const loading = document.getElementById('drive-loading');
+  const empty = document.getElementById('drive-empty');
+  const list = document.getElementById('drive-file-list');
+  const searchInput = document.getElementById('drive-search-input');
+  
+  modal.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  list.innerHTML = '';
+  empty.classList.add('hidden');
+  if (searchInput) searchInput.value = '';
+
+  const files = await GoogleSheetsService.fetchRecentSpreadsheets();
+  
+  loading.classList.add('hidden');
+  
+  if (!files || files.length === 0) {
+    if (!GoogleSheetsService.isAuthenticated()) {
+      empty.innerHTML = `
+        <div style="text-align: center; padding: 25px 15px;">
+          <i class="fa-solid fa-lock text-warning" style="font-size: 2.2rem; margin-bottom: 12px; display: block;"></i>
+          <h4 style="color: #f8fafc; margin-bottom: 6px; font-size: 1rem;">Sesión de Google expirada</h4>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 16px;">
+            Tu token de acceso venció o Google requiere verificación de identidad.<br>
+            Haz clic abajo para renovar el acceso a tus archivos de Drive.
+          </p>
+          <button id="btnReconectarGoogleDrive" class="btn btn-primary btn-sm" style="padding: 7px 16px; font-weight: 600;">
+            <i class="fa-brands fa-google"></i> Conectar con Google
+          </button>
+        </div>
+      `;
+      document.getElementById('btnReconectarGoogleDrive')?.addEventListener('click', () => {
+        GoogleSheetsService.requestAccessToken(async (success) => {
+          if (success) {
+            updateAuthUI(true);
+            openDriveModal();
+          }
+        });
+      });
+    } else {
+      empty.innerHTML = `
+        <i class="fa-solid fa-folder-open text-muted" style="font-size: 2rem; margin-bottom: 10px;"></i>
+        <p>No se encontraron hojas de cálculo recientes.</p>
+      `;
+    }
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  files.forEach(file => {
+    const li = document.createElement('li');
+    li.className = 'file-list-item';
+    li.dataset.filename = file.name.toLowerCase();
+    
+    const date = new Date(file.modifiedTime).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    let isShared = true;
+    let ownerName = 'Desconocido';
+    
+    if (file.owners && file.owners.length > 0) {
+      if (file.owners[0].me) {
+        isShared = false;
+        ownerName = 'Tú';
+      } else {
+        ownerName = file.owners[0].displayName || 'Compartido';
+      }
+    }
+
+    const isExcel = file.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.name.toLowerCase().endsWith('.xlsx');
+
+    const badgeClass = isShared ? 'badge-shared' : 'badge-owned';
+    const badgeText = isShared ? 'Compartido' : 'Mío';
+    const iconClass = isExcel ? 'fa-triangle-exclamation text-danger' : (isShared ? 'fa-file-excel file-icon-shared' : 'fa-file-excel file-icon-owned');
+    const ownerIcon = isShared ? 'fa-users' : 'fa-user';
+    
+    const excelWarningHtml = isExcel ? `<span class="file-badge custom-tooltip-icon" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); margin-right: 5px;" data-tooltip="Ábrelo en Drive y dale a 'Guardar como Hoja de cálculo de Google'">⚠️ Inválido (.xlsx)</span>` : '';
+
+    const safeFileName = escapeHtml(file.name);
+    const safeOwnerName = escapeHtml(ownerName);
+
+    li.innerHTML = `
+      <div class="file-item-icon">
+        <i class="fa-solid ${iconClass}"></i>
+      </div>
+      <div class="file-item-content">
+        <div class="file-item-title" title="${safeFileName}">${safeFileName}</div>
+        <div class="file-item-meta">
+          <span class="owner"><i class="fa-solid ${ownerIcon}"></i> ${safeOwnerName}</span>
+          <span class="date"><i class="fa-regular fa-clock"></i> ${date}</span>
+        </div>
+      </div>
+      <div class="file-item-action">
+        ${excelWarningHtml}
+        <span class="file-badge ${badgeClass}">${badgeText}</span>
+      </div>
+    `;
+    
+    li.addEventListener('click', () => {
+      document.getElementById('sheetUrlInput').value = file.id;
+      modal.classList.add('hidden');
+      fetchData(); // Cargar automáticamente
+    });
+    
+    list.appendChild(li);
+  });
+}
+
+window.filterDriveList = function(searchTerm) {
+  const term = String(searchTerm || '')
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const items = document.querySelectorAll('#drive-file-list .file-list-item');
+  let hasVisible = 0;
+
+  items.forEach(item => {
+    const rawName = item.dataset.filename || '';
+    const normName = rawName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    if (!term || normName.includes(term)) {
+      item.classList.remove('hidden');
+      item.style.removeProperty('display');
+      hasVisible++;
+    } else {
+      item.classList.add('hidden');
+      item.style.setProperty('display', 'none', 'important');
+    }
+  });
+
+  const empty = document.getElementById('drive-empty');
+  if (empty) {
+    if (hasVisible > 0) {
+      empty.classList.add('hidden');
+      empty.style.display = 'none';
+    } else {
+      empty.classList.remove('hidden');
+      empty.style.display = 'block';
+      empty.innerText = term ? `No se encontraron archivos que coincidan con "${searchTerm}"` : 'No se encontraron hojas de cálculo recientes.';
+    }
+  }
+};
+
+function checkAuthAndConfig() {
+  const isAuth = GoogleSheetsService.isAuthenticated();
+  updateAuthUI(isAuth);
+}
+
+function updateAuthUI(isAuthenticated) {
+  const btnLogin = document.getElementById('btnGoogleLogin');
+  const userInfo = document.getElementById('userInfo');
+  const userEmailSpan = document.getElementById('userEmail');
+
+  if (isAuthenticated) {
+    btnLogin.classList.add('hidden');
+    btnLogin.style.display = 'none';
+    userInfo.classList.remove('hidden');
+    userInfo.style.display = 'inline-flex';
+    userEmailSpan.innerText = GoogleSheetsService.userEmail || 'Conectado';
+  } else {
+    btnLogin.classList.remove('hidden');
+    btnLogin.style.display = '';
+    userInfo.classList.add('hidden');
+    userInfo.style.display = 'none';
+  }
+}
+
+async function fetchData() {
+  const input = document.getElementById('sheetUrlInput').value.trim();
+  if (!input) {
+    if(window.ClipboardUtil) ClipboardUtil.showToast('Ingresa la URL del Google Sheet', 'info');
+    else alert('Ingresa la URL del Google Sheet');
+    return;
+  }
+
+  const sheetId = GoogleSheetsService.extractSpreadsheetId(input);
+  if (!sheetId) return;
+
+  if (!GoogleSheetsService.isAuthenticated()) {
+    GoogleSheetsService.requestAccessToken(async (success) => {
+      if (success) {
+        updateAuthUI(true);
+        await loadAllSheets(sheetId);
+      }
+    });
+    return;
+  }
+
+  await loadAllSheets(sheetId);
+}
+
+async function loadAllSheets(sheetId) {
+  const badge = document.getElementById('connectionStatus');
+  badge.className = 'badge badge-warning';
+  badge.innerText = 'Descargando datos...';
+
+  try {
+    const tabs = await GoogleSheetsService.fetchSheetTabs(sheetId);
+    const getTabName = (keywords) => {
+      const tab = tabs.find(t => keywords.every(kw => t.title.toUpperCase().includes(kw.toUpperCase())));
+      return tab ? tab.title : null;
+    };
+
+    const nameSecos = getTabName(['BD SECOS']);
+    const namePpa = getTabName(['BD PPA']);
+    const nameFrescos = getTabName(['BD FRESCOS']);
+    const nameRegistro = getTabName(['REGISTRO', 'DIARIO']); // Busca "REGISTRO_DIARIO", "REGISTRO DIARIO", etc.
+    // Prioridad 1: Pestaña oficial de paraderos y rutas desde Google Drive
+    const nameParaderos = getTabName(['RUTAS MOVILIDAD']) || 
+                          getTabName(['RUTAS', 'MOVILIDAD']) || 
+                          getTabName(['RUTAS_MOVILIDAD']) || 
+                          getTabName(['PARADEROS_VALIDOS']) || 
+                          getTabName(['PARADEROS VALIDOS']) || 
+                          getTabName(['BD PARADEROS']) || 
+                          getTabName(['PARADEROS']) || 
+                          getTabName(['PARADERO']) || 
+                          getTabName(['COORDENADAS']) || 
+                          getTabName(['MIS RUTAS']) || 
+                          (tabs.find(t => /^RUTAS?(\s+.*)?$/i.test(t.title.trim()))?.title);
+    const nameBdBuses = getTabName(['BD BUSES']) || getTabName(['BUSES']);
+    const nameBdRutas = getTabName(['BD RUTAS']);
+
+    const [secos, ppa, frescos, registroDiario, paraderosSheet, bdBusesSheet, bdRutasSheet] = await Promise.all([
+      nameSecos ? GoogleSheetsService.fetchSheetData(sheetId, nameSecos).catch(e => null) : Promise.resolve(null),
+      namePpa ? GoogleSheetsService.fetchSheetData(sheetId, namePpa).catch(e => null) : Promise.resolve(null),
+      nameFrescos ? GoogleSheetsService.fetchSheetData(sheetId, nameFrescos).catch(e => null) : Promise.resolve(null),
+      nameRegistro ? GoogleSheetsService.fetchSheetData(sheetId, nameRegistro).catch(e => null) : Promise.resolve(null),
+      nameParaderos ? GoogleSheetsService.fetchSheetData(sheetId, nameParaderos).catch(e => null) : Promise.resolve(null),
+      nameBdBuses ? GoogleSheetsService.fetchSheetData(sheetId, nameBdBuses).catch(e => null) : Promise.resolve(null),
+      nameBdRutas ? GoogleSheetsService.fetchSheetData(sheetId, nameBdRutas).catch(e => null) : Promise.resolve(null)
+    ]);
+
+    // Cargar catálogo de rutas válidas desde BD RUTAS si está disponible
+    if (bdRutasSheet && bdRutasSheet.rows && bdRutasSheet.rows.length > 0) {
+      AppState.rutasOficiales = new Set();
+      bdRutasSheet.rows.forEach(r => {
+        const rutaNom = String(getRowVal(r, ['RUTA', 'RUTAS', 'NOMBRE RUTA', 'LINEA']) || '').trim().toUpperCase();
+        if (rutaNom && !['SIN RUTA', 'N/D', 'DESCONOCIDO'].includes(rutaNom)) {
+          const norm = rutaNom.startsWith('RUTA') ? rutaNom : `RUTA ${rutaNom}`;
+          AppState.rutasOficiales.add(norm);
+        }
+      });
+    }
+    if (!AppState.rutasOficiales || AppState.rutasOficiales.size === 0) {
+      AppState.rutasOficiales = new Set(RUTAS_OFICIALES);
+    }
+
+    // Cargar tarifario dinámico desde BD BUSES si está disponible
+    if (bdBusesSheet && bdBusesSheet.rows && bdBusesSheet.rows.length > 0) {
+      AppState.tarifarioBuses = JSON.parse(JSON.stringify(TARIFARIO_BD_BUSES));
+      bdBusesSheet.rows.forEach(r => {
+        const tipoBus = String(getRowVal(r, ['TIPO BUS', 'TIPO_BUS', 'VEHICULO', 'TIPO']) || '').trim().toUpperCase();
+        if (!tipoBus) return;
+        if (!AppState.tarifarioBuses[tipoBus]) {
+          AppState.tarifarioBuses[tipoBus] = {};
+        }
+        const capVal = parseFloat(String(getRowVal(r, ['CAPAC', 'CAPACIDAD', 'CAP']) || '0').replace(/[^0-9.-]+/g, '')) || 0;
+        if (capVal > 0) AppState.tarifarioBuses[tipoBus].cap = capVal;
+        
+        Object.keys(r).forEach(colKey => {
+          const colUpper = colKey.toUpperCase().trim();
+          if (colUpper.includes('TAX') || colUpper.includes('RUTA')) {
+            const rutaMatch = colUpper.match(/RUTA\s*([0-9]+[A-Z]?)/i);
+            if (rutaMatch) {
+              const numRuta = `RUTA ${rutaMatch[1].toUpperCase()}`;
+              const tarifaNum = parseFloat(String(r[colKey] || '0').replace(/[^0-9.-]+/g, '')) || 0;
+              if (tarifaNum > 0) {
+                AppState.tarifarioBuses[tipoBus][numRuta] = tarifaNum;
+              }
+            }
+          }
+        });
+      });
+    } else {
+      AppState.tarifarioBuses = TARIFARIO_BD_BUSES;
+    }
+
+    if (!secos && !ppa && !frescos) {
+      throw new Error("No se pudo leer la información. Si tu archivo es un Excel (.xlsx), debes abrirlo en Google Drive y darle a 'Archivo > Guardar como Hoja de cálculo de Google'. También verifica que existan las pestañas 'BD SECOS', 'BD PPA' o 'BD FRESCOS'.");
+    }
+
+    let combined = [];
+
+    const processSheet = (sheetData, areaName) => {
+      if (!sheetData || !sheetData.rows) return;
+      sheetData.rows.forEach(row => {
+        const rawDni = getRowVal(row, ['DNI', 'USERID', 'USER ID', 'DOCUMENTO', 'ID', 'CODIGO']);
+        const distrito = String(getRowVal(row, ['Distrito', 'DISTRITO', 'DIST']) || '').trim();
+        
+        // Ignorar filas completamente vacías o cabeceras repetidas
+        if (!distrito && !rawDni) return;
+        
+        const dniClean = cleanDni(rawDni);
+        const nombreRaw = getRowVal(row, ['APELLIDOS Y NOMBRES', 'NOMBRE Y APELLIDO', 'APELLIDOS Y NOMBRE', 'NOMBRE COMPLETO', 'COLABORADOR', 'EMPLEADO', 'TRABAJADOR', 'NOMBRE', 'NOMBRES', 'NAME']);
+        const nombre = String(nombreRaw || '').trim() || 'Sin registrar';
+        
+        const tipoRaw = getRowVal(row, ['CLASIFICACION', 'CLASIFICACIÓN', 'TIPO', 'CATEGORIA', 'TIPO EMPLEADO']);
+        const tipo = normalizeTipo(tipoRaw);
+
+        const distCdVal = parseFloat(String(getRowVal(row, ['DIST. AL CD (km)', 'DIST. AL CD', 'DIST CD', 'DISTANCIA AL CD']) || '0').replace(/[^0-9.-]+/g, '')) || 0;
+        const clasifCd = String(getRowVal(row, ['CLASIF. DIST. CD', 'CLASIF DIST CD', 'CLASIFICACION CD']) || '').trim();
+        
+        const distParaderoVal = parseFloat(String(getRowVal(row, ['DIST. PARADERO (km)', 'DIST. PARADERO', 'DIST PARADERO', 'DISTANCIA PARADERO']) || '0').replace(/[^0-9.-]+/g, '')) || 0;
+        const clasifParadero = String(getRowVal(row, ['CLASIF. DIST. PARADERO', 'CLASIF DIST PARADERO', 'CLASIFICACION PARADERO']) || '').trim();
+        
+        const ruta = String(getRowVal(row, ['RUTA PARADERO', 'RUTA', 'RUTA ASIGNADA', 'RUTA PREFERIDA']) || '').trim();
+        const paradero = String(getRowVal(row, ['PARADERO', 'PARADERO MÁS CERCANO', 'PARADERO MAS CERCANO', 'NOMBRE PARADERO']) || '').trim();
+
+        // Extracción de coordenadas geográficas y dirección para el Mapa de Calor
+        const rawLat = getRowVal(row, ['LATITUD', 'LAT', 'LATITUDE', 'COORD Y', 'COORDENADA Y', 'Y']);
+        const rawLng = getRowVal(row, ['LONGITUD', 'LNG', 'LON', 'LONGITUDE', 'COORD X', 'COORDENADA X', 'X']);
+        const provincia = String(getRowVal(row, ['PROVINCIA', 'PROV']) || '').trim();
+        const departamento = String(getRowVal(row, ['DEPARTAMENTO', 'DEPTO', 'DEP']) || '').trim();
+        const direccion = String(getRowVal(row, ['DIRECCIÓN COMPLETA', 'DIRECCION COMPLETA', 'DIRECCION', 'DIRECCIÓN', 'DOMICILIO', 'ADDRESS']) || '').trim();
+
+        let lat = parseCoordinate(rawLat);
+        let lng = parseCoordinate(rawLng);
+
+        // Validar y normalizar coordenadas peruanas (Lima/Callao / Perú: Latitud ~ -12, Longitud ~ -77)
+        if (lat !== null && lng !== null) {
+          lat = -Math.abs(lat);
+          lng = -Math.abs(lng);
+          // Si por error en Excel vinieron invertidas (Lat ~ -77 y Lng ~ -12)
+          if (lat < -50 && lng > -50) {
+            const temp = lat;
+            lat = lng;
+            lng = temp;
+          }
+          // Verificar que esté dentro de un rango geográfico razonable para Perú
+          if (lat > 0 || lat < -20 || lng > -65 || lng < -85) {
+            lat = null;
+            lng = null;
+          }
+        }
+
+        // Si distCdVal es 0 pero tenemos coordenadas válidas, calcular distancia radial al CD Huachipa (-11.997563, -76.900062)
+        let finalDistCd = distCdVal;
+        if (finalDistCd <= 0 && lat !== null && lng !== null) {
+          finalDistCd = parseFloat(calcularDistanciaHaversineKm(lat, lng, -11.997563, -76.900062).toFixed(2));
+        }
+
+        combined.push({
+          dni: dniClean,
+          rawDni: String(rawDni).trim(),
+          nombre: nombre,
+          area: areaName,
+          tipo: tipo,
+          distrito: distrito,
+          provincia: provincia,
+          departamento: departamento,
+          direccion: direccion,
+          lat: lat,
+          lng: lng,
+          hasCoords: (lat !== null && lng !== null),
+          distCd: finalDistCd,
+          clasifCd: clasifCd,
+          distParadero: distParaderoVal,
+          clasifParadero: clasifParadero,
+          ruta: ruta,
+          paradero: paradero
+        });
+      });
+    };
+
+    processSheet(secos, 'SECOS');
+    processSheet(ppa, 'PPA');
+    processSheet(frescos, 'FRESCOS');
+
+    AppState.rawEmployees = combined;
+    AppState.filteredEmployees = [...combined];
+    
+    // Construir mapa de empleados para búsqueda rápida por DNI limpio y original
+    AppState.employeeMap = new Map();
+    combined.forEach(emp => {
+      if (emp.dni) AppState.employeeMap.set(emp.dni, emp);
+      if (emp.rawDni) AppState.employeeMap.set(String(emp.rawDni).trim().toUpperCase(), emp);
+    });
+
+    // Procesar datos de paraderos directamente desde el Google Sheet (100% dinámico)
+    if (paraderosSheet && paraderosSheet.rows && paraderosSheet.rows.length > 0) {
+      const parsedParaderos = [];
+      paraderosSheet.rows.forEach((row, idx) => {
+        let rutaVal = String(getRowVal(row, ['RUTA', 'LINEA', 'CODIGO RUTA', 'COD_RUTA', 'ID RUTA', 'ROUTE', 'RUTA PARADERO']) || '').trim();
+        rutaVal = rutaVal.replace(/^RUTA\s+/i, '');
+        const rawLat = getRowVal(row, ['LAT', 'LATITUD', 'LATITUDE', 'Y', 'COORD Y', 'COORDENADA Y', 'LAT-TRAB', 'LAT PARADERO']);
+        const rawLng = getRowVal(row, ['LNG', 'LON', 'LONG', 'LONGITUD', 'LONGITUDE', 'X', 'COORD X', 'COORDENADA X', 'LON-TRAB', 'LON PARADERO']);
+        const rawSec = getRowVal(row, ['SECUENCIA', 'ORDEN', 'PASO', 'NUMERO', 'ITEM', 'SEQ', 'ORD', 'NRO', 'N°']);
+        const rawHora = getRowVal(row, ['HORA', 'HORARIO', 'TIME', 'HORA_PARADERO', 'HORA PARADERO', 'HORA ESTIMADA', 'HORA LLEGADA', 'HORA SALIDA']);
+        const secuencia = parseInt(rawSec, 10) || (idx + 1);
+        const nombre = String(getRowVal(row, ['NOMBRE', 'PARADERO', 'NOMBRE PARADERO', 'NOMBRE_PARADERO', 'PARADERO MÁS CERCANO', 'PARADERO MAS CERCANO', 'DESCRIPCION', 'PUNTO', 'ESTACION', 'STOP_NAME', 'REFERENCIA']) || '').trim() || `Paradero ${secuencia}`;
+
+        if (rutaVal && rawLat && rawLng) {
+          const lat = parseFloat(String(rawLat).replace(',', '.'));
+          const lng = parseFloat(String(rawLng).replace(',', '.'));
+          if (!isNaN(lat) && !isNaN(lng)) {
+            parsedParaderos.push({
+              ruta: rutaVal,
+              lat,
+              lng,
+              nombre,
+              secuencia,
+              rawHora: rawHora ? String(rawHora).trim() : ''
+            });
+          }
+        }
+      });
+
+      if (parsedParaderos.length > 0) {
+        parsedParaderos.sort((a, b) => {
+          if (a.ruta !== b.ruta) return a.ruta.localeCompare(b.ruta, undefined, { numeric: true });
+          return a.secuencia - b.secuencia;
+        });
+        AppState.paraderosData = parsedParaderos;
+        AppState.paraderosSource = 'DRIVE';
+        AppState.paraderosTabName = nameParaderos;
+        updateParaderosSourceBadge();
+        AppState.mapDrawn = false;
+        if (AppState.mapInstance) {
+          dibujarRutasEnMapa();
+        }
+      } else {
+        AppState.paraderosData = [];
+        AppState.paraderosSource = 'DRIVE';
+        AppState.paraderosTabName = '';
+        updateParaderosSourceBadge();
+      }
+    } else {
+      AppState.paraderosData = [];
+      AppState.paraderosSource = 'DRIVE';
+      AppState.paraderosTabName = '';
+      updateParaderosSourceBadge();
+    }
+
+    // Guardamos las filas raw del registro diario para agregarlas dinámicamente según filtros
+    AppState.rawRegistroDiario = (registroDiario && registroDiario.rows) ? registroDiario.rows : [];
+
+    // Poblar dropdowns de Semana, Fecha y Día con sincronización y rango de fechas
+    const fMap = new Map();
+    const dateToDia = new Map();
+    const diaToDates = new Map();
+    const semMap = new Map(); // semNum -> { dates: Set, dias: Set, sampleDate: normF }
+
+    AppState.rawRegistroDiario.forEach(r => {
+      const rawF = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+      const normF = normalizeDateStr(rawF);
+      const rawD = getRowVal(r, ['DÍA', 'DIA', 'DAY']);
+      const normD = normalizeDiaStr(rawD, normF);
+      const s = parseInt(getRowVal(r, ['SEMANA', 'SEM']), 10);
+
+      if (normF && !fMap.has(normF)) {
+        fMap.set(normF, parseDateDMY(normF));
+      }
+
+      if (normD && normF) {
+        dateToDia.set(normF, normD);
+        if (!diaToDates.has(normD)) diaToDates.set(normD, []);
+        if (!diaToDates.get(normD).includes(normF)) diaToDates.get(normD).push(normF);
+      }
+
+      if (!isNaN(s) && s > 0) {
+        if (!semMap.has(s)) {
+          semMap.set(s, { dates: new Set(), dias: new Set(), sampleDate: normF });
+        }
+        const sObj = semMap.get(s);
+        if (normF) {
+          sObj.dates.add(normF);
+          if (!sObj.sampleDate) sObj.sampleDate = normF;
+        }
+        if (normD) sObj.dias.add(normD);
+      }
+    });
+
+    const fechas = Array.from(fMap.keys()).sort((a, b) => fMap.get(a) - fMap.get(b));
+    AppState.fechasDisponibles = fechas;
+    AppState.dateToDiaMap = dateToDia;
+    AppState.diaToDatesMap = diaToDates;
+
+    diaToDates.forEach((datesList) => {
+      datesList.sort((a, b) => (fMap.get(a) || 0) - (fMap.get(b) || 0));
+    });
+
+    // Poblar Selector de Semana (Cabecera y Tab 2) con formato claro: Lun DD/MM - Dom DD/MM
+    const semanasUnicas = Array.from(semMap.keys()).sort((a, b) => a - b);
+    AppState.semanasDisponibles = semanasUnicas;
+    AppState.semanasInfoMap = semMap;
+
+    const selSemana = document.getElementById('filtroSemana');
+    const selSemCostos = document.getElementById('selectSemanaCostos');
+    const lastSem = semanasUnicas.length > 0 ? String(semanasUnicas[semanasUnicas.length - 1]) : 'TODAS';
+
+    if (semanasUnicas.length > 0) {
+      AppState.semanaSeleccionada = lastSem;
+      AppState.semanaCostosSeleccionada = lastSem;
+
+      let optionsHtml = '';
+      semanasUnicas.slice().reverse().forEach(s => {
+        const sObj = semMap.get(s);
+        const bounds = sObj && sObj.sampleDate ? getWeekBounds(sObj.sampleDate) : null;
+        const rangeText = bounds ? ` (${bounds.label})` : '';
+        const isLatest = (String(s) === lastSem) ? ' - Última' : '';
+        optionsHtml += `<option value="${s}">Semana ${s}${rangeText}${isLatest}</option>`;
+      });
+      optionsHtml += `<option value="TODAS">Todas las Semanas</option>`;
+
+      if (selSemana) {
+        selSemana.innerHTML = optionsHtml;
+        selSemana.value = lastSem;
+      }
+      if (selSemCostos) {
+        selSemCostos.innerHTML = optionsHtml;
+        selSemCostos.value = lastSem;
+      }
+    } else {
+      if (selSemana) selSemana.innerHTML = `<option value="TODAS">Todas las Semanas</option>`;
+      if (selSemCostos) selSemCostos.innerHTML = `<option value="TODAS">Todas las Semanas</option>`;
+      AppState.semanaSeleccionada = 'TODAS';
+      AppState.semanaCostosSeleccionada = 'TODAS';
+    }
+
+    // Inicializar cascada de Día y Fecha a partir de la semana activa
+    updateFilterOptionsFromSemana(AppState.semanaSeleccionada, false);
+
+    badge.className = 'badge badge-success';
+    badge.innerHTML = `<i class="fa-solid fa-check"></i> Conectado - ${combined.length} regs`;
+
+    // Identificar pasajeros en REGISTRO_DIARIO que no existen en las bases maestras
+    const unmappedMap = new Map();
+    AppState.rawRegistroDiario.forEach(row => {
+      const rawDni = getRowVal(row, ['DNI', 'USERID', 'USER ID', 'DOCUMENTO', 'ID', 'CODIGO']);
+      const cleanPassengerDni = cleanDni(rawDni);
+      if (!cleanPassengerDni && !rawDni) return;
+
+      const emp = AppState.employeeMap.get(cleanPassengerDni) || (rawDni ? AppState.employeeMap.get(String(rawDni).trim().toUpperCase()) : null);
+
+      if (!emp) {
+        const key = cleanPassengerDni || String(rawDni).trim().toUpperCase();
+        const rutaVal = String(getRowVal(row, ['RUTA', 'RUTA ASIGNADA', 'LINEA']) || '').trim();
+        const rawFecha = getRowVal(row, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+        const fechaVal = normalizeDateStr(rawFecha);
+
+        if (!unmappedMap.has(key)) {
+          unmappedMap.set(key, {
+            dni: key,
+            rawDni: String(rawDni || key).trim(),
+            viajesCount: 0,
+            rutas: new Set(),
+            fechas: new Set(),
+            ultimaFecha: ''
+          });
+        }
+        const item = unmappedMap.get(key);
+        item.viajesCount += 1;
+        if (rutaVal) item.rutas.add(rutaVal);
+        if (fechaVal) {
+          item.fechas.add(fechaVal);
+          item.ultimaFecha = fechaVal;
+        }
+      }
+    });
+
+    AppState.unmappedPassengers = Array.from(unmappedMap.values()).sort((a, b) => b.viajesCount - a.viajesCount);
+
+    // Actualizar contadores en botones de la barra de filtros y modales
+    const bCountEmp = document.getElementById('badgeCountEmployees');
+    if (bCountEmp) bCountEmp.innerText = combined.length;
+
+    const bCountUnm = document.getElementById('badgeCountUnmapped');
+    if (bCountUnm) bCountUnm.innerText = AppState.unmappedPassengers.length;
+
+    const bInfoSinBD = document.getElementById('badgeInfoSinBD');
+    if (bInfoSinBD) bInfoSinBD.innerText = `${AppState.unmappedPassengers.length} sin BD`;
+
+    const mCountEmp = document.getElementById('modalEmpCountBadge');
+    if (mCountEmp) mCountEmp.innerText = `${combined.length} colaboradores`;
+
+    const mCountUnm = document.getElementById('modalUnmappedCountBadge');
+    if (mCountUnm) mCountUnm.innerText = `${AppState.unmappedPassengers.length} sin BD`;
+
+    document.getElementById('dashboardFiltersWrapper').classList.remove('hidden');
+    document.getElementById('dashboardContent').classList.remove('hidden');
+
+    applyFilters();
+    renderAnalisisCostos();
+    popularDropdownDistritosCalor();
+    if (AppState.activeTab === 'mapacalor') {
+      renderMapaCalorEmpleados();
+    }
+
+    if(window.ClipboardUtil) ClipboardUtil.showToast('Datos cargados exitosamente', 'success');
+
+  } catch (err) {
+    console.error(err);
+    badge.className = 'badge badge-danger';
+    badge.innerText = 'Error de conexión';
+    if(window.ClipboardUtil) {
+      ClipboardUtil.showToast(err.message, 'danger', 10000);
+    } else {
+      alert(err.message);
+    }
+  }
+}
+
+function applyFilters() {
+  const getActiveChips = (containerId) => {
+    const activeBtn = document.querySelectorAll(`#${containerId} .chip.active`);
+    return Array.from(activeBtn).map(b => b.dataset.value);
+  };
+
+  const areas = getActiveChips('chipArea');
+  const tipos = getActiveChips('chipTipo');
+
+  const filterAreaActive = !areas.includes('TODOS') && areas.length > 0;
+  const filterTipoActive = !tipos.includes('TODOS') && tipos.length > 0;
+  const isSegmented = filterAreaActive || filterTipoActive;
+
+  // Opción del usuario: Incluir o excluir pasajeros sin BD maestra
+  const chipSinBDEl = document.querySelector('#chipIncluirSinBD .chip.active');
+  const incluirSinBD = chipSinBDEl ? chipSinBDEl.dataset.value : 'SI';
+
+  // Si hay segmentación por Área o Tipo, o si el usuario eligió "NO" (Excluir sin BD), filtramos por BD maestra
+  const isFiltered = isSegmented || (incluirSinBD === 'NO');
+
+  // Actualizar UI del grupo de filtro sin BD
+  const groupSinBDEl = document.getElementById('groupFiltroSinBD');
+  const labelSinBDHint = document.getElementById('labelSinBDHint');
+  if (groupSinBDEl) {
+    if (isSegmented) {
+      groupSinBDEl.style.opacity = '0.55';
+      groupSinBDEl.title = 'Al filtrar por Área o Tipo, los pasajeros sin BD ya quedan excluidos automáticamente al no tener área ni tipo asignado.';
+      if (labelSinBDHint) {
+        labelSinBDHint.innerText = '(Excluidos por filtro)';
+        labelSinBDHint.style.color = '#94a3b8';
+      }
+    } else {
+      groupSinBDEl.style.opacity = '1';
+      groupSinBDEl.title = '';
+      if (labelSinBDHint) {
+        if (incluirSinBD === 'SI') {
+          labelSinBDHint.innerText = '(Incluidos en "TODOS")';
+          labelSinBDHint.style.color = '#4ade80';
+        } else {
+          labelSinBDHint.innerText = '(Excluidos - Solo BD)';
+          labelSinBDHint.style.color = '#f59e0b';
+        }
+      }
+    }
+  }
+
+  // Filtrar data demográfica de empleados
+  AppState.filteredEmployees = AppState.rawEmployees.filter(emp => {
+    const matchArea = !filterAreaActive || areas.includes(emp.area);
+    const matchTipo = !filterTipoActive || tipos.includes(emp.tipo);
+    return matchArea && matchTipo;
+  });
+
+  // Mapa de DNIs de empleados filtrados para consulta rápida
+  const filteredDniSet = new Set();
+  AppState.filteredEmployees.forEach(e => {
+    if (e.dni) filteredDniSet.add(e.dni);
+    if (e.rawDni) filteredDniSet.add(String(e.rawDni).trim().toUpperCase());
+  });
+
+  const selSem = document.getElementById('filtroSemana');
+  const valSem = selSem ? selSem.value : (AppState.semanaSeleccionada || 'TODAS');
+  const selD = document.getElementById('filtroDia');
+  const valDia = selD ? selD.value : 'TODOS';
+  const selF = document.getElementById('filtroFecha');
+  const valFecha = selF ? selF.value : 'TODAS';
+
+  AppState.semanaSeleccionada = valSem;
+  AppState.fechaSeleccionada = valFecha;
+
+  // Agrupación de viajes de buses
+  // Cada viaje de bus se identifica por fecha + turno + ruta (+ tipoBus si aplica)
+  const dominantMap = buildDominantRouteMap(AppState.rawRegistroDiario);
+  const aggrMap = {};
+  let aggrTripIdx = 0;
+  AppState.rawRegistroDiario.forEach(row => {
+    const rawFecha = getRowVal(row, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const fechaSoloDia = normalizeDateStr(rawFecha);
+    if (!fechaSoloDia) return;
+
+    const rawDia = getRowVal(row, ['DÍA', 'DIA', 'DAY']);
+    const diaValNorm = normalizeDiaStr(rawDia, fechaSoloDia);
+    const semVal = parseInt(getRowVal(row, ['SEMANA', 'SEM']), 10);
+
+    // Filtros de Semana, Día y Fecha sincronizados
+    if (valSem !== 'TODAS' && String(semVal) !== String(valSem)) return;
+    if (valDia !== 'TODOS') {
+      const valDiaNorm = normalizeDiaStr(valDia);
+      if (diaValNorm !== valDiaNorm) return;
+    }
+    if (valFecha !== 'TODAS' && fechaSoloDia !== valFecha) return;
+
+    const tipoBusVal = String(getRowVal(row, ['TIPO_BUS', 'TIPO BUS', 'BUS_TIPO']) || '').trim();
+    const turnoVal = extractTurnoFromRow(row, rawFecha);
+    const placaVal = String(getRowVal(row, ['PLACA', 'UNIDAD', 'VEHICULO']) || '').trim();
+
+    const rawRowDni = getRowVal(row, ['DNI', 'USERID', 'USER ID', 'DOCUMENTO', 'ID', 'CODIGO']);
+    const dniClean = cleanDni(rawRowDni);
+    const rawNombre = String(getRowVal(row, ['APELLIDOS Y NOMBRES', 'NOMBRE Y APELLIDO', 'NOMBRE', 'COLABORADOR', 'EMPLEADO', 'NAME']) || '').trim();
+
+    const isPassengerRow = Boolean(
+      (dniClean && dniClean.length >= 4 && !['TOTAL', 'SUBTOTAL', 'NONE', 'N/D', '0'].includes(dniClean)) ||
+      (rawNombre && rawNombre.length >= 3 && !rawNombre.toUpperCase().includes('TOTAL'))
+    );
+
+    const rawPasajCol = getRowVal(row, ['PASAJEROS', 'TOTAL PASAJEROS', 'PASAJ', 'CANTIDAD PASAJEROS', 'CANT_PASAJEROS']);
+    const numPasajCol = parseFloat(String(rawPasajCol || '0').replace(/[^0-9.-]+/g, "")) || 0;
+    if (!isPassengerRow && numPasajCol <= 0) return;
+
+    const rutaVal = resolveRutaFromRow(row, dniClean, rawRowDni, dominantMap, fechaSoloDia, turnoVal);
+
+    const tripKey = isPassengerRow
+      ? `${fechaSoloDia}|${rutaVal}|${tipoBusVal || 'BUS'}${turnoVal ? '|' + turnoVal : ''}${placaVal ? '|' + placaVal : ''}`
+      : `${fechaSoloDia}|${rutaVal}|${tipoBusVal || 'BUS'}|${aggrTripIdx++}`;
+
+    const rawCosto = getRowVal(row, ['COSTO TOTAL', 'COSTO', 'COSTO POR VIAJE', 'COSTO BUS', 'COSTO_TOTAL', 'TAX UNITARIO', 'TAX']);
+    let costoNum = parseFloat(String(rawCosto || '0').replace(/[^0-9.-]+/g, "")) || 0;
+    const rawCap = getRowVal(row, ['CAPACIDAD', 'CAPACIDAD DE BUS', 'CAPACIDAD BUS', 'CAPACIDAD_BUS']);
+    let capNum = parseFloat(String(rawCap || '0').replace(/[^0-9.-]+/g, "")) || 0;
+
+    if (rutaVal === 'Desconocido') {
+      costoNum = 0;
+      capNum = 0;
+    } else {
+      if (costoNum <= 0) {
+        costoNum = getTarifaBus(tipoBusVal, rutaVal);
+      }
+      if (capNum <= 0) {
+        capNum = getCapacidadBus(tipoBusVal);
+      }
+    }
+
+    if (!aggrMap[tripKey]) {
+      aggrMap[tripKey] = {
+        dia: diaValNorm || rawDia || '',
+        fecha: fechaSoloDia,
+        semana: semVal,
+        ruta: rutaVal,
+        tipoBus: tipoBusVal,
+        capacidad: capNum,
+        costoBus: costoNum,
+        totalPasajeros: 0,
+        pasajerosFiltrados: 0
+      };
+    } else {
+      if (costoNum > 0 && (!aggrMap[tripKey].costoBus || aggrMap[tripKey].costoBus === 0)) {
+        aggrMap[tripKey].costoBus = costoNum;
+      }
+      if (capNum > 0 && (!aggrMap[tripKey].capacidad || aggrMap[tripKey].capacidad === 0)) {
+        aggrMap[tripKey].capacidad = capNum;
+      }
+    }
+
+    const trip = aggrMap[tripKey];
+
+    if (isPassengerRow) {
+      trip.totalPasajeros += 1;
+      const cleanPassengerDni = cleanDni(rawRowDni);
+      let passengerMatches = false;
+      if (!isFiltered) {
+        passengerMatches = true;
+      } else {
+        if (cleanPassengerDni && filteredDniSet.has(cleanPassengerDni)) {
+          passengerMatches = true;
+        } else if (rawRowDni && filteredDniSet.has(String(rawRowDni).trim().toUpperCase())) {
+          passengerMatches = true;
+        }
+      }
+      if (passengerMatches) {
+        trip.pasajerosFiltrados += 1;
+      }
+    } else {
+      const cant = numPasajCol > 0 ? numPasajCol : 1;
+      trip.totalPasajeros += cant;
+      trip.pasajerosFiltrados += cant;
+    }
+  });
+
+  // Crear la data final de viajes
+  AppState.registroData = Object.values(aggrMap).map(trip => {
+    const prop = trip.totalPasajeros > 0 ? (trip.pasajerosFiltrados / trip.totalPasajeros) : 0;
+    // Si hay filtros, prorrateamos el costo según la cantidad de pasajeros que corresponden a ese grupo
+    const costoFinal = isFiltered ? (trip.costoBus * prop) : trip.costoBus;
+    const pasajerosFinal = isFiltered ? trip.pasajerosFiltrados : trip.totalPasajeros;
+
+    return {
+      dia: trip.dia,
+      fecha: trip.fecha,
+      semana: trip.semana,
+      ruta: trip.ruta,
+      tipoBus: trip.tipoBus,
+      capacidad: trip.capacidad,
+      totalPasajerosBus: trip.totalPasajeros,
+      pasajeros: pasajerosFinal,
+      costo: costoFinal,
+      costoBusOriginal: trip.costoBus,
+      esFiltrado: isFiltered
+    };
+  });
+
+  renderTables();
+  if (typeof renderCharts === 'function') {
+    renderCharts();
+  }
+  renderAnalisisCostos();
+  if (AppState.activeTab === 'mapacalor') {
+    renderMapaCalorEmpleados();
+  }
+}
+
+function renderTables() {
+  const data = AppState.filteredEmployees;
+  const regData = AppState.registroData;
+
+  const totalEmps = data.length;
+
+  let sumDistCd = 0, countValidCd = 0;
+  let sumDistParadero = 0, countValidParadero = 0;
+  let distritosSet = new Set();
+  let rutasSet = new Set();
+
+  // Variables para tablas de clasificación
+  // Variables para tablas de clasificación (Leyenda limpia: solo color y nombre)
+  const countCd = {
+    '🟢 Muy Cerca': 0,
+    '🟡 Cerca': 0,
+    '🟠 Moderada': 0,
+    '🔴 Lejos': 0
+  };
+
+  const countParadero = {
+    '🟢 Muy Cerca': 0,
+    '🟡 Cerca': 0,
+    '🟠 Moderada': 0,
+    '🔴 Lejos': 0
+  };
+
+  const distritosStats = {};
+  const rutasCount = {};
+  const paraderosCount = {};
+
+  data.forEach(emp => {
+    // Totales
+    if (emp.distCd > 0) { sumDistCd += emp.distCd; countValidCd++; }
+    if (emp.distParadero > 0) { sumDistParadero += emp.distParadero; countValidParadero++; }
+    if (emp.distrito) distritosSet.add(emp.distrito);
+    if (emp.ruta) rutasSet.add(emp.ruta);
+
+    // Clasificaciones CD (matching substring o valor numérico)
+    if (emp.clasifCd.includes('Muy Cerca') || (emp.distCd > 0 && emp.distCd <= 5)) countCd['🟢 Muy Cerca']++;
+    else if (emp.clasifCd.includes('Cerca') || (emp.distCd > 5 && emp.distCd <= 10)) countCd['🟡 Cerca']++;
+    else if (emp.clasifCd.includes('Moderada') || (emp.distCd > 10 && emp.distCd <= 20)) countCd['🟠 Moderada']++;
+    else if (emp.clasifCd.includes('Lejos') || emp.distCd > 20) countCd['🔴 Lejos']++;
+
+    // Clasificaciones Paradero (matching substring o valor numérico)
+    if (emp.clasifParadero.includes('Muy Cerca') || (emp.distParadero > 0 && emp.distParadero <= 1)) countParadero['🟢 Muy Cerca']++;
+    else if (emp.clasifParadero.includes('Cerca') || (emp.distParadero > 1 && emp.distParadero <= 3)) countParadero['🟡 Cerca']++;
+    else if (emp.clasifParadero.includes('Moderada') || (emp.distParadero > 3 && emp.distParadero <= 5)) countParadero['🟠 Moderada']++;
+    else if (emp.clasifParadero.includes('Lejos') || emp.distParadero > 5) countParadero['🔴 Lejos']++;
+
+    // Stats por Distrito
+    if (emp.distrito) {
+      if (!distritosStats[emp.distrito]) {
+        distritosStats[emp.distrito] = {
+          count: 0, sumCd: 0, validCd: 0, sumPar: 0, validPar: 0, rutas: {}
+        };
+      }
+      const dStat = distritosStats[emp.distrito];
+      dStat.count++;
+      if (emp.distCd > 0) { dStat.sumCd += emp.distCd; dStat.validCd++; }
+      if (emp.distParadero > 0) { dStat.sumPar += emp.distParadero; dStat.validPar++; }
+      if (emp.ruta) { dStat.rutas[emp.ruta] = (dStat.rutas[emp.ruta] || 0) + 1; }
+    }
+
+    // Listas simples
+    if (emp.ruta) rutasCount[emp.ruta] = (rutasCount[emp.ruta] || 0) + 1;
+    if (emp.paradero) {
+      if (!paraderosCount[emp.paradero]) paraderosCount[emp.paradero] = { count: 0, ruta: emp.ruta || '-' };
+      paraderosCount[emp.paradero].count++;
+    }
+  });
+
+  // 1. Tabla RESUMEN (Ahora KPIs Superiores)
+  const elResTotalEmp = document.getElementById('kpiTotalEmps');
+  if(elResTotalEmp) {
+    elResTotalEmp.innerText = totalEmps;
+    const subTotalEmps = document.querySelector('#kpiTotalEmps + .kpi-subtitle');
+    if (subTotalEmps) {
+      const chipSinBDEl = document.querySelector('#chipIncluirSinBD .chip.active');
+      const incluirSinBDActive = chipSinBDEl ? chipSinBDEl.dataset.value !== 'NO' : true;
+      const areasAct = Array.from(document.querySelectorAll('#chipArea .chip.active')).map(b => b.dataset.value);
+      const tiposAct = Array.from(document.querySelectorAll('#chipTipo .chip.active')).map(b => b.dataset.value);
+      const isSeg = (!areasAct.includes('TODOS') && areasAct.length > 0) || (!tiposAct.includes('TODOS') && tiposAct.length > 0);
+
+      if (!isSeg && incluirSinBDActive && (AppState.unmappedPassengers || []).length > 0) {
+        subTotalEmps.innerText = `En BD (+${AppState.unmappedPassengers.length} sin registrar)`;
+      } else {
+        subTotalEmps.innerText = 'Personal auditado en BD';
+      }
+    }
+    document.getElementById('kpiDistPromCD').innerText = countValidCd > 0 ? (sumDistCd / countValidCd).toFixed(2) : '0';
+  }
+
+  // Helpers de Formato
+  const formatPct = (val, tot) => tot > 0 ? ((val / tot) * 100).toFixed(2) + '%' : '0%';
+  const clasificarCD = (km) => {
+    if (km <= 5) return '🟢 Muy Cerca';
+    if (km <= 10) return '🟡 Cerca';
+    if (km <= 20) return '🟠 Moderada';
+    return '🔴 Lejos';
+  };
+  const clasificarPar = (km) => {
+    if (km <= 1) return '🟢 Muy Cerca';
+    if (km <= 3) return '🟡 Cerca';
+    if (km <= 5) return '🟠 Moderada';
+    return '🔴 Lejos';
+  };
+
+  const obsDistrito = (cd, par) => {
+    // Lógica original de Excel provista por el usuario
+    if (cd > 20 && par > 5) return '⚠️ Muy lejos del CD y paraderos';
+    if (cd > 20) return '⚠️ Muy lejos del CD';
+    if (par > 5) return '⚠️ Lejos de paraderos';
+    return '📍 Normal';
+  };
+
+  // 2 y 3. Gráficos de Clasificación
+  const colorsCd = {
+    '🟢 Muy Cerca': '#22c55e', 
+    '🟡 Cerca': '#eab308',     
+    '🟠 Moderada': '#f97316',  
+    '🔴 Lejos': '#ef4444'      
+  };
+
+  const colorsParadero = {
+    '🟢 Muy Cerca': '#22c55e', 
+    '🟡 Cerca': '#eab308',     
+    '🟠 Moderada': '#f97316',  
+    '🔴 Lejos': '#ef4444'      
+  };
+
+  renderPieChart('chartDistCD', countCd, colorsCd);
+  renderPieChart('chartDistParadero', countParadero, colorsParadero);
+
+  // 4. Tabla Análisis Detallado por Distrito
+  const distritosArr = Object.keys(distritosStats).map(d => {
+    const st = distritosStats[d];
+    const promCd = st.validCd > 0 ? st.sumCd / st.validCd : 0;
+    const promPar = st.validPar > 0 ? st.sumPar / st.validPar : 0;
+    
+    // ruta principal
+    let mainRuta = '-';
+    let maxRutaCount = 0;
+    for (const [r, c] of Object.entries(st.rutas)) {
+      if (c > maxRutaCount) { maxRutaCount = c; mainRuta = r; }
+    }
+
+    return {
+      nombre: d,
+      count: st.count,
+      promCd: promCd,
+      promPar: promPar,
+      ruta: mainRuta
+    };
+  }).sort((a, b) => b.count - a.count); // Ordenar por volumen
+
+  const elTbDetalle = document.querySelector('#tableDetalleDistritos tbody');
+  if(elTbDetalle) {
+    elTbDetalle.innerHTML = distritosArr.map((d, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${d.nombre}</td>
+        <td>${d.count}</td>
+        <td>${formatPct(d.count, totalEmps)}</td>
+        <td>${d.promCd >= 0 ? d.promCd.toFixed(2) : '-'}</td>
+        <td>${d.promCd >= 0 ? clasificarCD(d.promCd) : '-'}</td>
+        <td>${d.promPar >= 0 ? d.promPar.toFixed(2) : '-'}</td>
+        <td>${d.promPar >= 0 ? clasificarPar(d.promPar) : '-'}</td>
+        <td>${d.ruta}</td>
+        <td>${obsDistrito(d.promCd, d.promPar)}</td>
+      </tr>
+    `).join('');
+  }
+
+  // 5. TOP 10 Distritos (re-uso de distritosArr)
+  const top10Distritos = distritosArr.slice(0, 10);
+  renderBarChart('chartTopDistritos', top10Distritos);
+
+  // 6. Rutas Disponibles
+  const rutasSorted = Object.keys(rutasCount).map(k => ({ nombre: k, count: rutasCount[k] })).sort((a, b) => b.count - a.count);
+  const elTbRutas = document.querySelector('#tableRutasDisponibles tbody');
+  if(elTbRutas) {
+    elTbRutas.innerHTML = rutasSorted.map((r, i) => `
+      <tr><td>${r.nombre}</td><td>${r.count}</td><td>${formatPct(r.count, totalEmps)}</td></tr>
+    `).join('');
+  }
+
+  // 7. Top 10 Paraderos
+  const paraderosSorted = Object.keys(paraderosCount).map(k => ({ nombre: k, count: paraderosCount[k].count, ruta: paraderosCount[k].ruta })).sort((a, b) => b.count - a.count).slice(0, 10);
+  const elTbParaderosTop = document.querySelector('#tableTopParaderos tbody');
+  if(elTbParaderosTop) {
+    elTbParaderosTop.innerHTML = paraderosSorted.map((p, i) => `
+      <tr><td>${i + 1}</td><td>${p.nombre}</td><td>${p.count}</td><td>${p.ruta}</td></tr>
+    `).join('');
+  }
+
+  // 8. Dashboard Registro Diario
+  const seccionReg = document.getElementById('seccionRegistroDiario');
+  const seccionBuses = document.getElementById('seccionDashboardBuses');
+
+  if (AppState.rawRegistroDiario && AppState.rawRegistroDiario.length > 0) {
+    if (seccionReg) seccionReg.style.display = 'block';
+    if (seccionBuses) seccionBuses.style.display = 'block';
+
+    // Fecha a mostrar en el resumen del día
+    let fechaActual = AppState.fechaSeleccionada;
+    const isVerTodas = (fechaActual === 'TODAS');
+    if (!fechaActual || isVerTodas) {
+      const fechasUnicas = Array.from(new Set(regData.map(r => r.fecha))).sort((a, b) => parseDateDMY(a) - parseDateDMY(b));
+      fechaActual = isVerTodas ? 'TODAS LAS FECHAS' : (fechasUnicas.length > 0 ? fechasUnicas[fechasUnicas.length - 1] : '');
+    }
+
+    const isFiltered = regData.some(r => r.esFiltrado);
+
+    // Filtrar viajes del día seleccionado (o todos si se seleccionó TODAS)
+    const viajesDia = isVerTodas ? regData : regData.filter(r => r.fecha === fechaActual);
+    const datosDia = isFiltered ? viajesDia.filter(r => r.pasajeros > 0) : viajesDia;
+
+    // Obtener la semana del día seleccionado (o última semana registrada)
+    const semanaActual = viajesDia.length > 0 ? viajesDia[viajesDia.length - 1].semana : (regData.length > 0 ? regData[regData.length - 1].semana : 0);
+    const viajesSemana = isVerTodas ? regData : regData.filter(r => r.semana === semanaActual);
+    const datosSemana = isFiltered ? viajesSemana.filter(r => r.pasajeros > 0) : viajesSemana;
+
+    // Actualizar encabezados con la fecha y semana seleccionada
+    const elTituloReg = document.querySelector('#seccionRegistroDiario .table-title');
+    if (elTituloReg) {
+      elTituloReg.innerText = `EFICIENCIA Y COSTO POR RUTA (${isVerTodas ? 'TODAS LAS FECHAS' : 'DÍA: ' + (fechaActual || 'ACTUAL')})`;
+    }
+    const elResDiaTable = document.getElementById('tableResumenDia');
+    if (elResDiaTable) {
+      const h4 = elResDiaTable.closest('div').querySelector('h4');
+      if (h4) h4.innerHTML = `<i class="fa-regular fa-calendar-days"></i> ${isVerTodas ? 'RESUMEN ACUMULADO (TODAS LAS FECHAS)' : 'RESUMEN DEL DÍA (' + (fechaActual || 'ACTUAL') + ')'}`;
+    }
+    const elResSemTable = document.getElementById('tableResumenSemana');
+    if (elResSemTable) {
+      const h4 = elResSemTable.closest('div').querySelector('h4');
+      if (h4) h4.innerHTML = `<i class="fa-solid fa-calendar-week"></i> ${isVerTodas ? 'RESUMEN GENERAL' : 'RESUMEN SEMANAL (SEMANA ' + (semanaActual || '-') + ')'}`;
+    }
+
+    // Resumen por ruta del DÍA actual
+    const statsRuta = {};
+    datosDia.forEach(r => {
+      if (!statsRuta[r.ruta]) {
+        statsRuta[r.ruta] = { viajes: 0, cap: 0, pasaj: 0, costo: 0, pMin: 9999, pMax: -1 };
+      }
+      const st = statsRuta[r.ruta];
+      if (r.ruta !== 'Desconocido') {
+        st.viajes++;
+        st.cap += r.capacidad;
+        st.costo += r.costo;
+      }
+      st.pasaj += r.pasajeros;
+      if (r.pasajeros < st.pMin) st.pMin = r.pasajeros;
+      if (r.pasajeros > st.pMax) st.pMax = r.pasajeros;
+    });
+
+    const rutasDiario = Object.keys(statsRuta).map(k => ({ ruta: k, ...statsRuta[k] })).sort((a, b) => {
+      if (a.ruta === 'Desconocido') return 1;
+      if (b.ruta === 'Desconocido') return -1;
+      return a.ruta.localeCompare(b.ruta, undefined, { numeric: true });
+    });
+    
+    const elTbReg = document.querySelector('#tableRegistroDiario tbody');
+    if(elTbReg) {
+      if (rutasDiario.length === 0) {
+        elTbReg.innerHTML = `<tr><td colspan="10" style="text-align: center; color: #94a3b8; padding: 20px;">No se registraron viajes para los filtros seleccionados en esta fecha (${fechaActual}).</td></tr>`;
+      } else {
+        elTbReg.innerHTML = rutasDiario.map(r => {
+          const isDesc = (r.ruta === 'Desconocido');
+          const pOcup = (!isDesc && r.cap > 0) ? r.pasaj / r.cap : 0;
+          const cProm = (!isDesc && r.pasaj > 0) ? r.costo / r.pasaj : 0;
+          const promPasaj = (!isDesc && r.viajes > 0) ? r.pasaj / r.viajes : 0;
+          const cViaje = (!isDesc && r.viajes > 0) ? r.costo / r.viajes : 0;
+          
+          let estCap = '-';
+          if (isDesc) estCap = '⚠️ Sin Asignar';
+          else if (pOcup >= 0.9) estCap = '✅ Óptimo';
+          else if (pOcup >= 0.7) estCap = '🔄 OK';
+          else if (pOcup >= 0.5) estCap = '⚠️ Bajo';
+          else estCap = '🔴 Muy Bajo';
+
+          const rutaDisplay = isDesc 
+            ? `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-circle-question"></i> Sin Ruta Asignada</span>` 
+            : r.ruta;
+
+          return `<tr>
+            <td>${rutaDisplay}</td>
+            <td>${isDesc ? '-' : r.viajes}</td>
+            <td>${isDesc ? '-' : r.cap}</td>
+            <td>${r.pasaj}</td>
+            <td>${isDesc ? '-' : (pOcup*100).toFixed(2) + '%'}</td>
+            <td>${estCap}</td>
+            <td>${isDesc ? '-' : 'S/ ' + r.costo.toFixed(2)}</td>
+            <td>${isDesc ? '-' : 'S/ ' + cProm.toFixed(2)}</td>
+            <td>${isDesc ? '-' : 'S/ ' + cViaje.toFixed(2)}</td>
+            <td>MAX: ${r.pMax === -1 ? 0 : r.pMax} - MIN: ${r.pMin === 9999 ? 0 : r.pMin}</td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    // Dashboard Día / Semana
+    const aggDia = { viajes: 0, pasaj: 0, costo: 0, cap: 0 };
+    datosDia.forEach(r => { 
+      if (r.ruta !== 'Desconocido') {
+        aggDia.viajes++; 
+        aggDia.costo += r.costo; 
+        aggDia.cap += r.capacidad; 
+      }
+      aggDia.pasaj += r.pasajeros; 
+    });
+    
+    const aggSem = { viajes: 0, pasaj: 0, costo: 0, cap: 0 };
+    datosSemana.forEach(r => { 
+      if (r.ruta !== 'Desconocido') {
+        aggSem.viajes++; 
+        aggSem.costo += r.costo; 
+        aggSem.cap += r.capacidad; 
+      }
+      aggSem.pasaj += r.pasajeros; 
+    });
+
+    // Actualizar KPIs de la parte superior
+    document.getElementById('kpiCostoDia').innerText = 'S/ ' + aggDia.costo.toFixed(2);
+    document.getElementById('kpiOcupacionDia').innerText = formatPct(aggDia.pasaj, aggDia.cap);
+    const chipSinBDEl = document.querySelector('#chipIncluirSinBD .chip.active');
+    const incluirSinBDActive = chipSinBDEl ? chipSinBDEl.dataset.value !== 'NO' : true;
+    const areasAct = Array.from(document.querySelectorAll('#chipArea .chip.active')).map(b => b.dataset.value);
+    const tiposAct = Array.from(document.querySelectorAll('#chipTipo .chip.active')).map(b => b.dataset.value);
+    const isSeg = (!areasAct.includes('TODOS') && areasAct.length > 0) || (!tiposAct.includes('TODOS') && tiposAct.length > 0);
+
+    const subCosto = document.querySelector('#kpiCostoDia + .kpi-subtitle');
+    if (subCosto) {
+      if (!isSeg && !incluirSinBDActive) {
+        subCosto.innerText = isVerTodas ? 'Total invertido (Solo BD)' : 'Invertido hoy (Solo BD)';
+      } else {
+        subCosto.innerText = isVerTodas ? 'Total invertido acumulado' : 'Total invertido hoy';
+      }
+    }
+
+    const subOcup = document.querySelector('#kpiOcupacionDia + .kpi-subtitle');
+    if (subOcup) {
+      if (!isSeg && !incluirSinBDActive) {
+        subOcup.innerText = isVerTodas ? 'Eficiencia (Solo BD)' : 'Eficiencia hoy (Solo BD)';
+      } else {
+        subOcup.innerText = isVerTodas ? 'Eficiencia acumulada' : 'Eficiencia operativa hoy';
+      }
+    }
+
+    // Tablas de Dashboard
+    const elRdBusesDia = document.getElementById('rdBusesDia');
+    if(elRdBusesDia) {
+      elRdBusesDia.innerText = aggDia.viajes;
+      document.getElementById('rdPasajerosDia').innerText = aggDia.pasaj;
+      document.getElementById('rdCapacidadDia').innerText = aggDia.cap;
+      document.getElementById('rdCostoPasajeroDia').innerText = 'S/ ' + (aggDia.pasaj > 0 ? (aggDia.costo / aggDia.pasaj).toFixed(2) : '0.00');
+      document.getElementById('rdCapacidadUsadaDia').innerText = `${aggDia.pasaj} de ${aggDia.cap} (${formatPct(aggDia.pasaj, aggDia.cap)})`;
+
+      document.getElementById('rdViajesSem').innerText = aggSem.viajes;
+      document.getElementById('rdPasajerosSem').innerText = aggSem.pasaj;
+      document.getElementById('rdCostoSem').innerText = 'S/ ' + aggSem.costo.toFixed(2);
+      document.getElementById('rdOcupacionSem').innerText = formatPct(aggSem.pasaj, aggSem.cap);
+      document.getElementById('rdCostoPasajeroSem').innerText = 'S/ ' + (aggSem.pasaj > 0 ? (aggSem.costo / aggSem.pasaj).toFixed(2) : '0.00');
+    }
+  } else {
+    if(seccionReg) seccionReg.style.display = 'none';
+    if(seccionBuses) seccionBuses.style.display = 'none';
+  }
+
+  if (typeof updateAiContextBanner === 'function') {
+    updateAiContextBanner();
+  }
+
+  initTableScrollInteractions();
+}
+
+let activeAutoscroll = null;
+
+function stopAutoscroll() {
+  if (!activeAutoscroll) return;
+  if (activeAutoscroll.animId) cancelAnimationFrame(activeAutoscroll.animId);
+  if (activeAutoscroll.anchorEl && activeAutoscroll.anchorEl.parentNode) {
+    activeAutoscroll.anchorEl.parentNode.removeChild(activeAutoscroll.anchorEl);
+  }
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  activeAutoscroll = null;
+}
+
+function initTableScrollInteractions() {
+  if (!window._autoscrollGlobalBound) {
+    window._autoscrollGlobalBound = true;
+    window.addEventListener('click', (e) => {
+      if (activeAutoscroll && e.timeStamp - activeAutoscroll.startTime > 120) {
+        stopAutoscroll();
+      }
+    }, true);
+    window.addEventListener('mousedown', (e) => {
+      if (activeAutoscroll && e.button !== 1 && e.timeStamp - activeAutoscroll.startTime > 120) {
+        stopAutoscroll();
+      }
+    }, true);
+    window.addEventListener('keydown', (e) => {
+      if (activeAutoscroll) stopAutoscroll();
+    });
+  }
+
+  document.querySelectorAll('.table-responsive').forEach(container => {
+    if (container.dataset.scrollEnhanced === 'true') return;
+    container.dataset.scrollEnhanced = 'true';
+
+    // 1. Scroll horizontal automático al girar la rueda del mouse (wheel)
+    container.addEventListener('wheel', (e) => {
+      if (container.scrollWidth > container.clientWidth) {
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          e.preventDefault();
+          container.scrollLeft += e.deltaY * 1.3;
+        }
+      }
+    }, { passive: false });
+
+    // 2. Modo Autoscroll con un solo clic de la ruedita (sin mantener presionado)
+    container.addEventListener('mousedown', (e) => {
+      if (e.button === 1) { // Ruedita presionada una sola vez
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (activeAutoscroll) {
+          stopAutoscroll();
+          return;
+        }
+
+        if (container.scrollWidth <= container.clientWidth) return;
+
+        // Crear pin visual con flechas en la posición exacta del clic
+        const anchor = document.createElement('div');
+        anchor.className = 'table-autoscroll-anchor';
+        anchor.style.left = `${e.clientX}px`;
+        anchor.style.top = `${e.clientY}px`;
+        anchor.innerHTML = `
+          <div class="autoscroll-pin">
+            <i class="fa-solid fa-arrows-left-right"></i>
+          </div>
+        `;
+        document.body.appendChild(anchor);
+
+        document.body.style.cursor = 'all-scroll';
+        document.body.style.userSelect = 'none';
+
+        activeAutoscroll = {
+          container,
+          originX: e.clientX,
+          anchorEl: anchor,
+          startTime: e.timeStamp,
+          velocity: 0,
+          animId: null
+        };
+
+        function loop() {
+          if (!activeAutoscroll) return;
+          if (activeAutoscroll.velocity !== 0) {
+            container.scrollLeft += activeAutoscroll.velocity;
+          }
+          activeAutoscroll.animId = requestAnimationFrame(loop);
+        }
+        activeAutoscroll.animId = requestAnimationFrame(loop);
+      }
+    });
+  });
+
+  if (!window._autoscrollMoveBound) {
+    window._autoscrollMoveBound = true;
+    window.addEventListener('mousemove', (e) => {
+      if (!activeAutoscroll) return;
+      const diffX = e.clientX - activeAutoscroll.originX;
+
+      // Zona muerta de 6px en el centro
+      if (Math.abs(diffX) > 6) {
+        const sign = diffX > 0 ? 1 : -1;
+        const dist = Math.abs(diffX) - 6;
+        // Velocidad progresiva según qué tan lejos se mueva el mouse
+        activeAutoscroll.velocity = sign * Math.min(32, Math.pow(dist, 1.15) * 0.12);
+      } else {
+        activeAutoscroll.velocity = 0;
+      }
+    });
+  }
+}
+
+function initCharts() {
+  Chart.defaults.font.family = "'Inter', sans-serif";
+  Chart.defaults.color = '#94a3b8';
+  if (Chart.defaults.scale && Chart.defaults.scale.grid) {
+    Chart.defaults.scale.grid.color = 'rgba(255, 255, 255, 0.08)';
+  }
+}
+
+function renderPieChart(canvasId, dataMap, colors) {
+  const ctx = document.getElementById(canvasId);
+  if(!ctx) return;
+  
+  const labels = Object.keys(dataMap);
+  const data = labels.map(k => dataMap[k]);
+  const bgColors = labels.map(k => colors[k] || '#cbd5e1');
+
+  if (AppState.charts[canvasId]) {
+    AppState.charts[canvasId].destroy();
+  }
+
+  AppState.charts[canvasId] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: bgColors,
+        borderColor: '#1e293b',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: {
+        padding: {
+          top: 22,
+          bottom: 12,
+          left: 10,
+          right: 10
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          onClick: null, // Desactiva el tachado para evitar que el gráfico se distorsione o confunda con porcentajes irreales
+          labels: {
+            color: '#cbd5e1',
+            boxWidth: 14,
+            padding: 18,
+            font: {
+              size: 12,
+              weight: '500'
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const val = context.parsed || 0;
+              const dataset = context.dataset.data || [];
+              const total = dataset.reduce((a, b) => a + b, 0);
+              const pct = total > 0 ? ((val / total) * 100).toFixed(1) + '%' : '0%';
+              return ` ${context.label}: ${val} colaboradores (${pct} del total)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderBarChart(canvasId, dataArr) {
+  const ctx = document.getElementById(canvasId);
+  if(!ctx) return;
+  
+  const labels = dataArr.map(d => d.nombre);
+  const data = dataArr.map(d => d.count);
+
+  if (AppState.charts[canvasId]) {
+    AppState.charts[canvasId].destroy();
+  }
+
+  AppState.charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Volumen de Empleados',
+        data: data,
+        backgroundColor: '#3b82f6',
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 } }
+      },
+      plugins: {
+        legend: { display: false }
+      }
+    }
+  });
+}
+
+// ==========================================
+// Módulo de Mapeo de Rutas, Paraderos y GPS
+// ==========================================
+
+function updateParaderosSourceBadge() {
+  const badge = document.getElementById('mapaDataSourceBadge') || document.getElementById('mapaOrigenBadge');
+  const badgePill = document.getElementById('badgeRutasMap');
+  const count = (AppState.paraderosData || []).length;
+  
+  if (count > 0) {
+    if (badge) {
+      badge.className = 'file-badge badge-owned';
+      badge.style.background = 'rgba(34, 197, 94, 0.15)';
+      badge.style.color = '#4ade80';
+      badge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+      badge.innerHTML = `<i class="fa-solid fa-cloud-check"></i> Google Drive: ${AppState.paraderosTabName || 'RUTAS MOVILIDAD'} (${count} pts)`;
+    }
+    if (badgePill) {
+      badgePill.style.background = '#16a34a';
+      badgePill.innerText = 'Drive';
+    }
+  } else {
+    if (badge) {
+      badge.className = 'file-badge';
+      badge.style.background = 'rgba(148, 163, 184, 0.15)';
+      badge.style.color = '#94a3b8';
+      badge.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+      badge.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> Google Drive: Pendiente de sincronización`;
+    }
+    if (badgePill) {
+      badgePill.style.background = '#64748b';
+      badgePill.innerText = 'Drive';
+    }
+  }
+}
+
+function openMapModal() {
+  const modal = document.getElementById('mapa-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  // Sincronizar botones de sentido según AppState.sentidoRutaMapa
+  const sentido = AppState.sentidoRutaMapa || 'INGRESO';
+  document.querySelectorAll('#chipSentidoRuta .chip-sentido-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sentido === sentido);
+  });
+
+  updateParaderosSourceBadge();
+  initRoutesMap();
+
+  setTimeout(() => {
+    if (AppState.mapInstance) {
+      AppState.mapInstance.invalidateSize();
+      if (AppState.mapBounds && AppState.mapBounds.isValid()) {
+        AppState.mapInstance.fitBounds(AppState.mapBounds, { padding: [40, 40] });
+      }
+    }
+  }, 150);
+
+  if (!AppState.mapDrawn) {
+    dibujarRutasEnMapa();
+  }
+}
+
+function closeMapModal() {
+  const modal = document.getElementById('mapa-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function initRoutesMap() {
+  if (AppState.mapInstance) return;
+  const mapContainer = document.getElementById('mapaRutas');
+  if (!mapContainer) return;
+
+  const map = L.map('mapaRutas', {
+    center: [-12.046374, -77.042793],
+    zoom: 11,
+    wheelDebounceTime: 60,
+    wheelPxPerZoomLevel: 100
+  });
+
+  // Capa base oscura en alta definición (Mapbox si hay token configurado, o CartoDB Dark Matter gratuito como fallback)
+  const mbToken = getMapboxToken();
+  if (mbToken) {
+    L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${encodeURIComponent(mbToken)}`, {
+      attribution: '© Mapbox © OpenStreetMap',
+      tileSize: 512,
+      zoomOffset: -1,
+      maxZoom: 19
+    }).addTo(map);
+  } else {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap contributors © CARTO',
+      maxZoom: 19,
+      keepBuffer: 6,
+      updateWhenZooming: false,
+      updateWhenIdle: true
+    }).addTo(map);
+  }
+
+  map.on('click', function (e) {
+    if (e.originalEvent.target.id === 'mapaRutas' || e.originalEvent.target.classList.contains('leaflet-container')) {
+      // Si el usuario hace clic en el mapa, quitamos el filtro de ruta sin cambiar el zoom ni la posición de la cámara
+      const sel = document.getElementById('selectFiltroRutaMapa');
+      if (sel && sel.value !== 'TODAS') {
+        sel.value = 'TODAS';
+        resetearVistaMapa(false); // recenter = false: ¡NUNCA aleja ni recentra!
+      }
+    }
+  });
+
+  AppState.mapInstance = map;
+}
+
+function dibujarRutasEnMapa() {
+  const contenedorLista = document.getElementById('listaRutasCards');
+  if (!AppState.paraderosData || AppState.paraderosData.length === 0) {
+    if (contenedorLista) {
+      contenedorLista.innerHTML = `
+        <div style="text-align: center; color: #94a3b8; padding: 30px 15px;">
+          <i class="fa-solid fa-triangle-exclamation" style="font-size: 1.8rem; color: #f59e0b; margin-bottom: 10px;"></i>
+          <p>No se encontraron coordenadas de paraderos cargadas desde Google Drive.</p>
+          <small>Asegúrate de tener la pestaña <b>RUTAS MOVILIDAD</b> o <b>PARADEROS_VALIDOS</b> en tu Google Sheet.</small>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  // Limpiar capas previas si ya existían
+  if (AppState.mapLines) {
+    Object.values(AppState.mapLines).forEach(l => {
+      if (l && l.remove) l.remove();
+    });
+  }
+  if (AppState.mapDecorators) {
+    Object.values(AppState.mapDecorators).forEach(d => {
+      if (d && d.remove) d.remove();
+    });
+  }
+  if (AppState.mapMarkers) {
+    Object.values(AppState.mapMarkers).forEach(arr => {
+      arr.forEach(m => { if (m && m.remove) m.remove(); });
+    });
+  }
+
+  AppState.mapLines = {};
+  AppState.mapDecorators = {};
+  AppState.mapMarkers = {};
+  AppState.mapCards = {};
+
+  const sentido = AppState.sentidoRutaMapa || 'INGRESO';
+  const rutasAgrupadas = {};
+  const allLatLngs = [];
+
+  AppState.paraderosData.forEach(punto => {
+    let rId = String(punto.ruta || '').trim().toUpperCase();
+    rId = rId.replace(/^RUTA\s+/i, '');
+    if (!rId) return;
+
+    if (!rutasAgrupadas[rId]) {
+      rutasAgrupadas[rId] = [];
+      AppState.mapMarkers[rId] = [];
+    }
+
+    const lat = parseFloat(punto.lat);
+    const lng = parseFloat(punto.lng);
+    if (isNaN(lat) || isNaN(lng)) return;
+
+    const infoHorario = obtenerInfoHorarioParadero(rId, punto.nombre, punto.rawHora);
+
+    // Filtrar paraderos según sentido:
+    // Si estamos en INGRESO, excluir los que sean SOLO SALIDA (ej: Kimberly, FAME)
+    if (sentido === 'INGRESO' && infoHorario.soloSalida) return;
+    // Si estamos en SALIDA, excluir los que sean SOLO INGRESO (ej: Berlín)
+    if (sentido === 'SALIDA' && infoHorario.soloIngreso) return;
+
+    rutasAgrupadas[rId].push({
+      lat,
+      lng,
+      nombre: punto.nombre || `Paradero`,
+      secuencia: parseInt(punto.secuencia, 10) || (rutasAgrupadas[rId].length + 1),
+      horaIngreso: infoHorario.horaIngreso,
+      horaSalida: infoHorario.horaSalida,
+      soloSalida: infoHorario.soloSalida,
+      soloIngreso: infoHorario.soloIngreso,
+      esCD: infoHorario.esCD
+    });
+    allLatLngs.push([lat, lng]);
+  });
+
+  // Ordenar paraderos dentro de cada ruta según el Sentido activo
+  const isCdStop = (p) => p.esCD || /huachipa|cd\s*huachipa|cd\s*central/i.test(p.nombre);
+
+  Object.keys(rutasAgrupadas).forEach(rId => {
+    const lista = rutasAgrupadas[rId];
+    // Ordenar de forma base por columna secuencia
+    lista.sort((a, b) => a.secuencia - b.secuencia);
+
+    if (lista.length >= 2) {
+      if (sentido === 'INGRESO') {
+        // En INGRESO, el bus culmina en el CD (debe ser la última parada)
+        if (isCdStop(lista[0]) && !isCdStop(lista[lista.length - 1])) {
+          lista.reverse();
+        }
+      } else {
+        // En SALIDA, el bus inicia en el CD (debe ser el origen de partida)
+        if (isCdStop(lista[lista.length - 1]) && !isCdStop(lista[0])) {
+          lista.reverse();
+        }
+      }
+    }
+
+    // Asignar número visual de secuencia correlativo (1..N)
+    lista.forEach((p, idx) => {
+      p.numVisual = idx + 1;
+    });
+  });
+
+  // Poblar dropdown de rutas
+  const selectRuta = document.getElementById('selectFiltroRutaMapa');
+  const sortedRutas = Object.keys(rutasAgrupadas).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const rutaSeleccionadaPrevia = selectRuta ? selectRuta.value : 'TODAS';
+  if (selectRuta) {
+    selectRuta.innerHTML = `<option value="TODAS">Todas las Rutas (${sortedRutas.length})</option>` +
+      sortedRutas.map(r => `<option value="${r}">Ruta ${r}</option>`).join('');
+    selectRuta.value = (sortedRutas.includes(rutaSeleccionadaPrevia) ? rutaSeleccionadaPrevia : 'TODAS');
+  }
+
+  // Ajustar límites iniciales
+  if (allLatLngs.length > 0 && AppState.mapInstance) {
+    AppState.mapBounds = L.latLngBounds(allLatLngs);
+    AppState.mapInstance.fitBounds(AppState.mapBounds, { padding: [40, 40] });
+  }
+
+  // Dibujar Pines con Tooltips inteligentes y horarios
+  sortedRutas.forEach(rId => {
+    const puntos = rutasAgrupadas[rId];
+    const color = getRutaColor(rId);
+
+    puntos.forEach(p => {
+      let tooltipDetalle = '';
+      if (sentido === 'INGRESO') {
+        const esFin = p.numVisual === puntos.length;
+        const h = p.horaIngreso || (esFin ? '06:30 a.m.' : '');
+        tooltipDetalle = h ? `<br><small style="color: #60a5fa;"><i class="fa-regular fa-clock"></i> Recojo: <b>${h}</b></small>` : '';
+      } else {
+        if (p.numVisual === 1) {
+          tooltipDetalle = `<br><small style="color: #fb923c;"><i class="fa-solid fa-flag-checkered"></i> Salida CD: <b>04:30 p.m.</b></small>`;
+        } else if (p.numVisual === puntos.length) {
+          tooltipDetalle = `<br><small style="color: #34d399;"><i class="fa-solid fa-stop"></i> Fin de Ruta</small>`;
+        } else {
+          tooltipDetalle = `<br><small style="color: #94a3b8;"><i class="fa-solid fa-person-walking-arrow-right"></i> Desembarque</small>`;
+        }
+      }
+
+      const esCD = isCdStop(p);
+      const marcador = L.marker([p.lat, p.lng], { icon: crearIconoDePinColoreado(color, p.numVisual, esCD) })
+        .addTo(AppState.mapInstance)
+        .bindTooltip(`<b>Ruta ${rId}</b> [${p.numVisual}/${puntos.length}]: ${p.nombre}${tooltipDetalle}`, {
+          permanent: false, // Solo visible en hover o al filtrar ruta -> 100% fluido
+          direction: 'top',
+          className: 'etiqueta-paradero',
+          offset: [0, -36]
+        })
+        .on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          resaltarRutaEnMapa(rId);
+        });
+
+      AppState.mapMarkers[rId].push(marcador);
+    });
+  });
+
+  if (contenedorLista) contenedorLista.innerHTML = '';
+
+  // Solicitar trazado a Mapbox o reutilizar Caché
+  sortedRutas.forEach(nombreRuta => {
+    const puntos = rutasAgrupadas[nombreRuta];
+    if (puntos.length < 2) return;
+
+    const colorAsignado = getRutaColor(nombreRuta);
+    const coordsGoogle = puntos.map(p => `${p.lat},${p.lng}`);
+
+    let botonesGPS = '';
+    const btnClass = sentido === 'INGRESO' ? 'btn-gps btn-gps-ingreso' : 'btn-gps btn-gps-salida';
+    const labelGPS = sentido === 'INGRESO'
+      ? '<i class="fa-solid fa-location-arrow"></i> Navegar Ingreso al CD'
+      : '<i class="fa-solid fa-route"></i> Navegar Salida del CD';
+
+    if (coordsGoogle.length <= 10) {
+      botonesGPS = `<a href="${generarLinkGoogle(coordsGoogle)}" target="_blank" rel="noopener" class="${btnClass}">${labelGPS}</a>`;
+    } else {
+      const parte1 = coordsGoogle.slice(0, 10);
+      const parte2 = coordsGoogle.slice(9);
+      botonesGPS = `
+        <div style="display:flex; gap:6px;">
+          <a href="${generarLinkGoogle(parte1)}" target="_blank" rel="noopener" class="${btnClass}" style="flex:1;"><i class="fa-solid fa-location-arrow"></i> GPS Parte 1</a>
+          <a href="${generarLinkGoogle(parte2)}" target="_blank" rel="noopener" class="${btnClass}" style="flex:1; background-color:#16a34a !important;"><i class="fa-solid fa-location-arrow"></i> GPS Parte 2</a>
+        </div>
+      `;
+    }
+
+    const tarjetaRuta = document.createElement('div');
+    tarjetaRuta.className = 'tarjeta-logistica';
+    tarjetaRuta.style.borderLeft = `5px solid ${colorAsignado}`;
+    tarjetaRuta.dataset.ruta = nombreRuta;
+
+    const badgeSentido = sentido === 'INGRESO'
+      ? `<span class="badge-sentido-ingreso"><i class="fa-solid fa-arrow-right-to-bracket"></i> Ingreso 06:30 AM</span>`
+      : `<span class="badge-sentido-salida"><i class="fa-solid fa-arrow-right-from-bracket"></i> Salida 04:30 PM</span>`;
+
+    const listaParaderosHtml = `
+      <div class="tarjeta-paraderos-preview" style="margin: 8px 0 10px 0; max-height: 140px; overflow-y: auto; background: rgba(15, 23, 42, 0.65); border-radius: 8px; padding: 6px 10px; border: 1px solid rgba(51, 65, 85, 0.4);">
+        ${puntos.map(p => {
+          let badgeHora = '';
+          if (sentido === 'INGRESO') {
+            const esFin = p.numVisual === puntos.length;
+            const h = p.horaIngreso || (esFin ? '06:30 a.m.' : '--:--');
+            badgeHora = `<span class="paradero-hora badge-hora-ingreso" title="Hora de recojo"><i class="fa-regular fa-clock"></i> ${h}</span>`;
+          } else {
+            if (p.numVisual === 1) {
+              badgeHora = `<span class="paradero-hora badge-hora-salida" title="Salida del CD"><i class="fa-solid fa-flag-checkered"></i> 04:30 p.m.</span>`;
+            } else if (p.soloSalida) {
+              badgeHora = `<span class="paradero-hora badge-hora-salida-solo" title="Exclusivo salida"><i class="fa-solid fa-arrow-right-from-bracket"></i> Solo Salida</span>`;
+            } else if (p.numVisual === puntos.length) {
+              badgeHora = `<span class="paradero-hora badge-hora-fin" title="Fin de recorrido"><i class="fa-solid fa-stop"></i> Fin de Ruta</span>`;
+            } else {
+              badgeHora = `<span class="paradero-hora badge-hora-desembarque" title="Punto de bajada"><i class="fa-solid fa-person-walking-arrow-right"></i> Bajada</span>`;
+            }
+          }
+          return `
+            <div class="tarjeta-paradero-fila">
+              <span class="paradero-num" style="color: ${colorAsignado};">${p.numVisual}.</span>
+              <span class="paradero-nombre" title="${p.nombre}">${p.nombre}</span>
+              ${badgeHora}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    tarjetaRuta.innerHTML = `
+      <div class="tarjeta-ruta-title" style="color: ${colorAsignado}; display: flex; justify-content: space-between; align-items: center;">
+        <span><i class="fa-solid fa-bus"></i> RUTA ${nombreRuta}</span>
+        ${badgeSentido}
+      </div>
+      <div class="tarjeta-stats" id="stats-ruta-${nombreRuta}">
+        <span><i class="fa-solid fa-road"></i> Calculando...</span>
+        <span><i class="fa-regular fa-clock"></i> ...</span>
+        <span style="font-size: 0.72rem; color: #94a3b8;">${puntos.length} paraderos</span>
+      </div>
+      ${listaParaderosHtml}
+      ${botonesGPS}
+    `;
+
+    tarjetaRuta.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'A' && !e.target.closest('a')) {
+        resaltarRutaEnMapa(nombreRuta);
+      }
+    });
+
+    if (contenedorLista) contenedorLista.appendChild(tarjetaRuta);
+    AppState.mapCards[nombreRuta] = tarjetaRuta;
+
+    // Helpers para aplicar trazado en mapa
+    const aplicarTrazadoGeoJSON = (rutaData) => {
+      const distKM = (rutaData.distance / 1000).toFixed(1);
+      const durMin = Math.round(rutaData.duration / 60);
+
+      const statsEl = document.getElementById(`stats-ruta-${nombreRuta}`);
+      if (statsEl) {
+        statsEl.innerHTML = `<span><i class="fa-solid fa-road"></i> ${distKM} km</span><span><i class="fa-regular fa-clock"></i> ~${durMin} min</span><span style="font-size: 0.72rem; color: #94a3b8;">${puntos.length} paraderos</span>`;
+      }
+
+      let latLngs = [];
+      if (rutaData.geometry && Array.isArray(rutaData.geometry.coordinates)) {
+        latLngs = rutaData.geometry.coordinates.map(c => [c[1], c[0]]);
+      } else {
+        latLngs = puntos.map(p => [p.lat, p.lng]);
+      }
+
+      const layer = L.polyline(latLngs, {
+        color: colorAsignado,
+        weight: 5,
+        opacity: 0.85
+      }).addTo(AppState.mapInstance);
+
+      layer.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        resaltarRutaEnMapa(nombreRuta);
+      });
+
+      AppState.mapLines[nombreRuta] = layer;
+
+      // Flechas direccionales a lo largo de la ruta en el sentido de viaje
+      if (window.L && L.polylineDecorator && latLngs.length > 1) {
+        try {
+          const decorator = L.polylineDecorator(layer, {
+            patterns: [
+              {
+                offset: 35,
+                repeat: 120,
+                symbol: L.Symbol.arrowHead({
+                  pixelSize: 11,
+                  polygon: true,
+                  headAngle: 45,
+                  pathOptions: {
+                    fillOpacity: 0.95,
+                    fillColor: '#ffffff',
+                    stroke: true,
+                    color: '#0f172a',
+                    weight: 1.2
+                  }
+                })
+              }
+            ]
+          }).addTo(AppState.mapInstance);
+
+          decorator.on('click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            resaltarRutaEnMapa(nombreRuta);
+          });
+
+          if (!AppState.mapDecorators) AppState.mapDecorators = {};
+          AppState.mapDecorators[nombreRuta] = decorator;
+        } catch (err) {
+          console.warn('Error al agregar decorador de ruta:', err);
+        }
+      }
+    };
+
+    const aplicarTrazadoDirecto = () => {
+      const latLngs = puntos.map(p => [p.lat, p.lng]);
+      const layer = L.polyline(latLngs, {
+        color: colorAsignado,
+        weight: 4,
+        opacity: 0.8,
+        dashArray: '6, 6'
+      }).addTo(AppState.mapInstance);
+
+      layer.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        resaltarRutaEnMapa(nombreRuta);
+      });
+
+      AppState.mapLines[nombreRuta] = layer;
+
+      if (window.L && L.polylineDecorator && latLngs.length > 1) {
+        try {
+          const decorator = L.polylineDecorator(layer, {
+            patterns: [
+              {
+                offset: 30,
+                repeat: 110,
+                symbol: L.Symbol.arrowHead({
+                  pixelSize: 10,
+                  polygon: true,
+                  headAngle: 45,
+                  pathOptions: {
+                    fillOpacity: 0.9,
+                    fillColor: '#ffffff',
+                    stroke: true,
+                    color: '#0f172a',
+                    weight: 1.2
+                  }
+                })
+              }
+            ]
+          }).addTo(AppState.mapInstance);
+
+          decorator.on('click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            resaltarRutaEnMapa(nombreRuta);
+          });
+
+          if (!AppState.mapDecorators) AppState.mapDecorators = {};
+          AppState.mapDecorators[nombreRuta] = decorator;
+        } catch (err) {
+          console.warn('Error al agregar decorador directo:', err);
+        }
+      }
+
+      const statsEl = document.getElementById(`stats-ruta-${nombreRuta}`);
+      if (statsEl) {
+        statsEl.innerHTML = `<span><i class="fa-solid fa-road"></i> Trazado directo</span><span><i class="fa-regular fa-compass"></i> ${puntos.length} paraderos</span>`;
+      }
+    };
+
+    const stringCoordenadas = puntos.map(p => `${p.lng},${p.lat}`).join(';');
+    const cacheKey = nombreRuta + '_' + sentido + '_full_' + stringCoordenadas;
+
+    // Si ya lo tenemos en caché, dibujar al instante (0ms)
+    if (AppState.routeDirectionsCache && AppState.routeDirectionsCache[cacheKey]) {
+      aplicarTrazadoGeoJSON(AppState.routeDirectionsCache[cacheKey]);
+    } else {
+      const mbToken = getMapboxToken();
+      const directionsUrl = mbToken
+        ? `https://api.mapbox.com/directions/v5/mapbox/driving/${stringCoordenadas}?geometries=geojson&overview=full&access_token=${encodeURIComponent(mbToken)}`
+        : `https://router.project-osrm.org/route/v1/driving/${stringCoordenadas}?geometries=geojson&overview=full`;
+
+      fetch(directionsUrl)
+        .then(r => r.json())
+        .then(data => {
+          if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            const rutaData = data.routes[0];
+            if (AppState.routeDirectionsCache) {
+              AppState.routeDirectionsCache[cacheKey] = rutaData;
+            }
+            aplicarTrazadoGeoJSON(rutaData);
+          } else {
+            aplicarTrazadoDirecto();
+          }
+        })
+        .catch(() => {
+          aplicarTrazadoDirecto();
+        });
+    }
+  });
+
+  AppState.mapDrawn = true;
+}
+
+function resaltarRutaEnMapa(idRutaSeleccionada) {
+  if (!idRutaSeleccionada || idRutaSeleccionada === 'TODAS') {
+    resetearVistaMapa(false);
+    return;
+  }
+
+  // 1. Sincronizar select
+  const sel = document.getElementById('selectFiltroRutaMapa');
+  if (sel && sel.value !== idRutaSeleccionada) {
+    sel.value = idRutaSeleccionada;
+  }
+
+  // 2. Líneas del mapa
+  for (const [idRuta, linea] of Object.entries(AppState.mapLines)) {
+    const color = getRutaColor(idRuta);
+    if (idRuta === idRutaSeleccionada) {
+      linea.setStyle({ weight: 7, color: color, opacity: 1 });
+      if (linea.bringToFront) linea.bringToFront();
+    } else {
+      linea.setStyle({ weight: 2, color: color, opacity: 0.15 });
+    }
+  }
+
+  // 2b. Flechas direccionales del mapa
+  if (AppState.mapDecorators) {
+    for (const [idRuta, decorator] of Object.entries(AppState.mapDecorators)) {
+      if (idRuta === idRutaSeleccionada) {
+        if (decorator.bringToFront) decorator.bringToFront();
+        decorator.setPatterns([
+          {
+            offset: 30,
+            repeat: 90,
+            symbol: L.Symbol.arrowHead({
+              pixelSize: 13,
+              polygon: true,
+              headAngle: 45,
+              pathOptions: {
+                fillOpacity: 1,
+                fillColor: '#ffffff',
+                stroke: true,
+                color: color,
+                weight: 2
+              }
+            })
+          }
+        ]);
+      } else {
+        decorator.setPatterns([
+          {
+            offset: 40,
+            repeat: 180,
+            symbol: L.Symbol.arrowHead({
+              pixelSize: 7,
+              polygon: true,
+              headAngle: 45,
+              pathOptions: {
+                fillOpacity: 0.12,
+                fillColor: '#ffffff',
+                stroke: false
+              }
+            })
+          }
+        ]);
+      }
+    }
+  }
+
+  // 3. Marcadores y Tooltips: abrir etiquetas SOLO para la ruta seleccionada
+  for (const [idRuta, marcadores] of Object.entries(AppState.mapMarkers)) {
+    if (idRuta === idRutaSeleccionada) {
+      marcadores.forEach(m => {
+        m.setOpacity(1);
+        m.setZIndexOffset(1000);
+        m.openTooltip(); // Muestra el nombre solo para los paraderos de esta ruta
+        const tooltipEl = m.getTooltip()?.getElement();
+        if (tooltipEl) tooltipEl.style.opacity = '1';
+      });
+    } else {
+      marcadores.forEach(m => {
+        m.setOpacity(0.18);
+        m.setZIndexOffset(0);
+        m.closeTooltip(); // Oculta el nombre de las otras rutas
+        const tooltipEl = m.getTooltip()?.getElement();
+        if (tooltipEl) tooltipEl.style.opacity = '0.15';
+      });
+    }
+  }
+
+  // 4. Tarjetas del panel
+  document.querySelectorAll('.tarjeta-logistica').forEach(t => t.classList.remove('tarjeta-resaltada'));
+  const card = AppState.mapCards[idRutaSeleccionada];
+  if (card) {
+    card.classList.add('tarjeta-resaltada');
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // 5. Ajustar vista a la ruta
+  if (AppState.mapLines[idRutaSeleccionada] && AppState.mapInstance) {
+    const bounds = AppState.mapLines[idRutaSeleccionada].getBounds();
+    if (bounds && bounds.isValid()) {
+      AppState.mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    }
+  }
+}
+
+function resetearVistaMapa(recenter = false) {
+  // Restaurar líneas
+  for (const [id, linea] of Object.entries(AppState.mapLines)) {
+    linea.setStyle({ weight: 4, color: getRutaColor(id), opacity: 0.8 });
+  }
+
+  // Restaurar flechas direccionales
+  if (AppState.mapDecorators) {
+    for (const [id, decorator] of Object.entries(AppState.mapDecorators)) {
+      decorator.setPatterns([
+        {
+          offset: 35,
+          repeat: 120,
+          symbol: L.Symbol.arrowHead({
+            pixelSize: 11,
+            polygon: true,
+            headAngle: 45,
+            pathOptions: {
+              fillOpacity: 0.95,
+              fillColor: '#ffffff',
+              stroke: true,
+              color: '#0f172a',
+              weight: 1.2
+            }
+          })
+        }
+      ]);
+    }
+  }
+
+  // Restaurar paneles
+  document.querySelectorAll('.tarjeta-resaltada').forEach(t => t.classList.remove('tarjeta-resaltada'));
+
+  // Restaurar marcadores y cerrar tooltips
+  for (const [id, marcadores] of Object.entries(AppState.mapMarkers)) {
+    marcadores.forEach(m => {
+      m.setOpacity(1);
+      m.setZIndexOffset(0);
+      m.closeTooltip(); // Cierra tooltip para que el mapa quede despejado y veloz
+      const tooltipEl = m.getTooltip()?.getElement();
+      if (tooltipEl) tooltipEl.style.opacity = '1';
+    });
+  }
+
+  // Sincronizar select
+  const sel = document.getElementById('selectFiltroRutaMapa');
+  if (sel) sel.value = 'TODAS';
+
+  // Solo re-centrar el mapa si se solicitó explícitamente desde el botón [Centrar]
+  if (recenter && AppState.mapBounds && AppState.mapBounds.isValid() && AppState.mapInstance) {
+    AppState.mapInstance.fitBounds(AppState.mapBounds, { padding: [40, 40] });
+  }
+}
+
+// ==========================================
+// Módulo de Directorio de Colaboradores
+// ==========================================
+
+function openEmployeesModal() {
+  const modal = document.getElementById('modal-empleados');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderModalEmployees();
+}
+
+function renderModalEmployees() {
+  const tbody = document.getElementById('tbodyModalEmpleados');
+  if (!tbody) return;
+
+  const search = String(document.getElementById('inputBuscarEmpleado')?.value || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const filtroTipo = document.getElementById('filtroModalEmpTipo')?.value || 'TODOS';
+  const filtroArea = document.getElementById('filtroModalEmpArea')?.value || 'TODOS';
+
+  const emps = (AppState.rawEmployees || []).filter(e => {
+    if (filtroTipo !== 'TODOS' && e.tipo !== filtroTipo) return false;
+    if (filtroArea !== 'TODOS' && e.area !== filtroArea) return false;
+    if (!search) return true;
+
+    const dniNorm = (e.dni || '').toLowerCase();
+    const rawDniNorm = (e.rawDni || '').toLowerCase();
+    const nomNorm = (e.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const distNorm = (e.distrito || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const rutaNorm = (e.ruta || '').toLowerCase();
+
+    return dniNorm.includes(search) || rawDniNorm.includes(search) || nomNorm.includes(search) || distNorm.includes(search) || rutaNorm.includes(search);
+  });
+
+  const footer = document.getElementById('labelTotalMostradosEmp');
+  if (footer) {
+    footer.innerText = `Mostrando ${emps.length} de ${(AppState.rawEmployees || []).length} colaboradores`;
+  }
+
+  if (emps.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 25px;">No se encontraron colaboradores con los filtros seleccionados.</td></tr>`;
+    return;
+  }
+
+  // Renderizar los primeros 300 para asegurar fluidez instantánea
+  const limit = 300;
+  const slice = emps.slice(0, limit);
+
+  tbody.innerHTML = slice.map(e => {
+    const areaBadge = e.area === 'SECOS' 
+      ? '<span class="file-badge badge-owned">SECOS</span>' 
+      : (e.area === 'PPA' ? '<span class="file-badge badge-shared">PPA</span>' : '<span class="file-badge" style="background: rgba(6, 182, 212, 0.15); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.3);">FRESCOS</span>');
+    
+    const tipoBadge = e.tipo === 'STAFF'
+      ? '<span class="badge badge-info" style="font-size: 0.72rem;">STAFF</span>'
+      : (e.tipo === 'OPERARIO' ? '<span class="badge badge-success" style="font-size: 0.72rem;">OPERARIO</span>' : `<span class="badge" style="background: #334155; color: #94a3b8; font-size: 0.72rem;">${escapeHtml(e.tipo)}</span>`);
+
+    let rutaDisplay = '-';
+    if (e.ruta) {
+      const rClean = String(e.ruta).trim();
+      rutaDisplay = rClean.toUpperCase().startsWith('RUTA') ? rClean : `Ruta ${rClean}`;
+    }
+
+    return `<tr>
+      <td style="font-weight: 600; font-family: monospace; color: #f8fafc; white-space: nowrap;">${escapeHtml(e.dni || e.rawDni)}</td>
+      <td style="color: #cbd5e1; font-weight: 500; white-space: nowrap;">${escapeHtml(e.nombre || 'Sin registrar')}</td>
+      <td style="text-align: center; white-space: nowrap;">${areaBadge}</td>
+      <td style="text-align: center; white-space: nowrap;">${tipoBadge}</td>
+      <td style="color: #94a3b8; white-space: nowrap;">${escapeHtml(e.distrito || '-')}</td>
+      <td style="color: #60a5fa; font-weight: 600; white-space: nowrap;">${escapeHtml(rutaDisplay)}</td>
+      <td style="color: #cbd5e1; font-size: 0.85rem; white-space: nowrap;">${escapeHtml(e.paradero || '-')}</td>
+    </tr>`;
+  }).join('');
+
+  if (emps.length > limit) {
+    tbody.innerHTML += `<tr><td colspan="7" style="text-align: center; color: #f59e0b; padding: 10px; font-size: 0.8rem;">Mostrando los primeros ${limit} de ${emps.length} resultados. Usa el buscador para filtrar más específicamente.</td></tr>`;
+  }
+}
+
+// ==========================================
+// Módulo de Pasajeros No Contemplados en BD
+// ==========================================
+
+function openUnmappedModal() {
+  const modal = document.getElementById('modal-no-contemplados');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderModalUnmapped();
+}
+
+function renderModalUnmapped() {
+  const tbody = document.getElementById('tbodyModalNoContemplados');
+  if (!tbody) return;
+
+  const search = String(document.getElementById('inputBuscarNoContemplado')?.value || '').trim().toLowerCase();
+
+  const list = (AppState.unmappedPassengers || []).filter(u => {
+    if (!search) return true;
+    const dniNorm = (u.dni || '').toLowerCase();
+    const rawDniNorm = (u.rawDni || '').toLowerCase();
+    const rutasNorm = Array.from(u.rutas).join(' ').toLowerCase();
+    return dniNorm.includes(search) || rawDniNorm.includes(search) || rutasNorm.includes(search);
+  });
+
+  const footer = document.getElementById('labelTotalMostradosUnmapped');
+  if (footer) {
+    footer.innerText = `Total: ${list.length} pasajeros en Registro Diario sin registro en BD maestras`;
+  }
+
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #4ade80; padding: 25px;"><i class="fa-solid fa-circle-check"></i> Excelente. Todos los pasajeros registrados coinciden con las bases maestras.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(u => {
+    const rutasStr = Array.from(u.rutas).map(r => {
+      const rClean = String(r).trim();
+      const rDisp = rClean.toUpperCase().startsWith('RUTA') ? rClean : `Ruta ${rClean}`;
+      return `<span class="badge" style="background: #1e293b; border: 1px solid #334155; color: #93c5fd; margin-right: 4px; white-space: nowrap;">${escapeHtml(rDisp)}</span>`;
+    }).join('') || '-';
+
+    return `<tr>
+      <td style="font-weight: 700; font-family: monospace; color: #f87171; white-space: nowrap;">${escapeHtml(u.dni || u.rawDni)}</td>
+      <td style="font-weight: 600; color: #f8fafc; text-align: center; white-space: nowrap;">${escapeHtml(u.viajesCount)}</td>
+      <td style="white-space: nowrap;">${rutasStr}</td>
+      <td style="color: #94a3b8; font-size: 0.82rem; white-space: nowrap;">${escapeHtml(u.ultimaFecha || '-')}</td>
+      <td style="white-space: nowrap;"><span class="file-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); white-space: nowrap; display: inline-block;">🔴 No figura en BD SECOS/PPA/FRESCOS</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function copiarDnisNoMapeados() {
+  const list = AppState.unmappedPassengers || [];
+  if (list.length === 0) {
+    if (window.ClipboardUtil) ClipboardUtil.showToast('No hay DNIs sin mapear para copiar', 'info');
+    else alert('No hay DNIs sin mapear para copiar');
+    return;
+  }
+
+  const text = list.map(u => u.dni || u.rawDni).join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (window.ClipboardUtil) ClipboardUtil.showToast(`Se copiaron ${list.length} DNIs al portapapeles`, 'success');
+      else alert(`Se copiaron ${list.length} DNIs al portapapeles`);
+    });
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (window.ClipboardUtil) ClipboardUtil.showToast(`Se copiaron ${list.length} DNIs al portapapeles`, 'success');
+    else alert(`Se copiaron ${list.length} DNIs al portapapeles`);
+  }
+}
+
+// =========================================================
+// MÓDULO: Pestañas de Navegación del Dashboard
+// =========================================================
+
+function switchDashboardTab(tabName) {
+  AppState.activeTab = tabName;
+  const btnOp = document.getElementById('btnTabOperacion');
+  const btnCo = document.getElementById('btnTabCostos');
+  const btnCa = document.getElementById('btnTabMapaCalor');
+  const viewOp = document.getElementById('viewOperacionDemografia');
+  const viewCo = document.getElementById('viewAnalisisCostos');
+  const viewCa = document.getElementById('viewMapaCalor');
+
+  if (tabName === 'costos') {
+    if (btnOp) btnOp.classList.remove('active');
+    if (btnCa) btnCa.classList.remove('active');
+    if (btnCo) btnCo.classList.add('active');
+    if (viewOp) viewOp.classList.add('hidden');
+    if (viewCa) viewCa.classList.add('hidden');
+    if (viewCo) viewCo.classList.remove('hidden');
+    renderAnalisisCostos();
+    setTimeout(() => {
+      if (AppState.charts && AppState.charts['chartOcupacionRutasCostos']) {
+        AppState.charts['chartOcupacionRutasCostos'].resize();
+      }
+      if (AppState.charts && AppState.charts['chartCostoPasajerosRutas']) {
+        AppState.charts['chartCostoPasajerosRutas'].resize();
+      }
+      if (AppState.charts && AppState.charts['chartTrazabilidadSemana']) {
+        AppState.charts['chartTrazabilidadSemana'].resize();
+      }
+    }, 60);
+  } else if (tabName === 'mapacalor') {
+    if (btnOp) btnOp.classList.remove('active');
+    if (btnCo) btnCo.classList.remove('active');
+    if (btnCa) btnCa.classList.add('active');
+    if (viewOp) viewOp.classList.add('hidden');
+    if (viewCo) viewCo.classList.add('hidden');
+    if (viewCa) viewCa.classList.remove('hidden');
+    initHeatMapIfNeeded();
+    renderMapaCalorEmpleados();
+    setTimeout(() => {
+      if (AppState.heatMapInstance) {
+        AppState.heatMapInstance.invalidateSize();
+      }
+    }, 150);
+  } else {
+    // Operación & Demografía
+    if (btnCo) btnCo.classList.remove('active');
+    if (btnCa) btnCa.classList.remove('active');
+    if (btnOp) btnOp.classList.add('active');
+    if (viewCo) viewCo.classList.add('hidden');
+    if (viewCa) viewCa.classList.add('hidden');
+    if (viewOp) viewOp.classList.remove('hidden');
+  }
+}
+
+// =========================================================
+// MÓDULO: Hoja de Análisis de Costos y Eficiencia
+// =========================================================
+
+function renderAnalisisCostos() {
+  const rawRows = AppState.rawRegistroDiario || [];
+  if (rawRows.length === 0) return;
+
+  // 1. Extraer semanas únicas disponibles
+  const semSet = new Set();
+  rawRows.forEach(r => {
+    const s = parseInt(getRowVal(r, ['SEMANA', 'SEM']), 10);
+    if (!isNaN(s) && s > 0) semSet.add(s);
+  });
+  const semanas = Array.from(semSet).sort((a, b) => a - b);
+
+  // 2. Poblar selector de semana si no tiene opciones suficientes
+  const selSem = document.getElementById('selectSemanaCostos');
+  if (selSem) {
+    if (selSem.options.length <= 1 && semanas.length > 0) {
+      selSem.innerHTML = semanas.map(s => `<option value="${s}">Semana ${s}</option>`).join('');
+      if (semanas.length > 1) {
+        selSem.innerHTML += `<option value="TODAS">Todas las Semanas</option>`;
+      }
+    }
+    if (!AppState.semanaCostosSeleccionada) {
+      AppState.semanaCostosSeleccionada = semanas.length > 0 ? String(semanas[semanas.length - 1]) : '9';
+    }
+    selSem.value = AppState.semanaCostosSeleccionada;
+  }
+
+  // 2. Obtener filtros activos del encabezado superior (Semana, Día, Fecha, Área, Tipo, Sin BD)
+  const selSemHeader = document.getElementById('filtroSemana');
+  const valSem = selSemHeader ? selSemHeader.value : (AppState.semanaSeleccionada || 'TODAS');
+  const isVerTodas = (valSem === 'TODAS');
+
+  const selDia = document.getElementById('filtroDia');
+  const valDia = selDia ? selDia.value : 'TODOS';
+
+  const selFecha = document.getElementById('filtroFecha');
+  const valFecha = selFecha ? selFecha.value : 'TODAS';
+
+  // Sincronizar selector local de Semana en Tab 2 si existe
+  const selSemTab2 = document.getElementById('selectSemanaCostos');
+  if (selSemTab2 && selSemTab2.value !== valSem) {
+    selSemTab2.value = valSem;
+  }
+
+  // Actualizar badge de la tabla
+  const badgeSem = document.getElementById('badgeSemanaTabla');
+  if (badgeSem) {
+    let text = isVerTodas ? 'Todas las Semanas' : `Semana ${valSem}`;
+    if (valDia !== 'TODOS') text += ` (${valDia})`;
+    if (valFecha !== 'TODAS') text += ` - ${valFecha}`;
+    badgeSem.innerHTML = `<i class="fa-regular fa-calendar-check"></i> ${text}`;
+  }
+
+  const getActiveChips = (containerId) => {
+    const activeBtn = document.querySelectorAll(`#${containerId} .chip.active`);
+    return Array.from(activeBtn).map(b => b.dataset.value);
+  };
+
+  const areas = getActiveChips('chipArea');
+  const tipos = getActiveChips('chipTipo');
+
+  const filterAreaActive = !areas.includes('TODOS') && areas.length > 0;
+  const filterTipoActive = !tipos.includes('TODOS') && tipos.length > 0;
+  const isSegmented = filterAreaActive || filterTipoActive;
+
+  const chipSinBDEl = document.querySelector('#chipIncluirSinBD .chip.active');
+  const incluirSinBD = chipSinBDEl ? chipSinBDEl.dataset.value : 'SI';
+  const isDemographicFiltered = isSegmented || (incluirSinBD === 'NO');
+
+  // Conjunto de DNIs filtrados en base a Área y Tipo
+  const filteredDniSet = new Set();
+  (AppState.filteredEmployees || []).forEach(e => {
+    if (e.dni) filteredDniSet.add(e.dni);
+    if (e.rawDni) filteredDniSet.add(String(e.rawDni).trim().toUpperCase());
+  });
+
+  // Mostrar badge informativo de filtros activos en Tab 2
+  const elFilterBadge = document.getElementById('costFilterStatusBadge');
+  if (elFilterBadge) {
+    const filterParts = [];
+    if (!isVerTodas) filterParts.push(`Semana: <b>${valSem}</b>`);
+    if (valDia !== 'TODOS') filterParts.push(`Día: <b>${valDia}</b>`);
+    if (valFecha !== 'TODAS') filterParts.push(`Fecha: <b>${valFecha}</b>`);
+    if (filterAreaActive) filterParts.push(`Área: <b>${areas.join(', ')}</b>`);
+    if (filterTipoActive) filterParts.push(`Tipo: <b>${tipos.join(', ')}</b>`);
+    if (incluirSinBD === 'NO') filterParts.push(`<b>Solo BD Maestra</b>`);
+
+    if (filterParts.length > 0) {
+      elFilterBadge.style.display = 'block';
+      elFilterBadge.innerHTML = `<i class="fa-solid fa-filter" style="color: #fbbf24;"></i> Filtros aplicados: ${filterParts.join(' | ')} <span style="color: #94a3b8;">(Métricas prorrateadas según colaboradores correspondientes)</span>`;
+    } else {
+      elFilterBadge.style.display = 'none';
+    }
+  }
+
+  // 3. Agrupar registros por Despacho de Bus (Trip) y contabilizar pasajeros reales
+  const dominantMap = buildDominantRouteMap(rawRows);
+  const tripsMap = {};
+  let anonymousTripCounter = 0;
+  let totalPasajerosSemana = 0;
+  const uniqueColaboradoresSet = new Set();
+
+  rawRows.forEach(r => {
+    const rawFecha = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const fechaSoloDia = normalizeDateStr(rawFecha);
+
+    const s = parseInt(getRowVal(r, ['SEMANA', 'SEM']), 10);
+    const rawDia = getRowVal(r, ['DÍA', 'DIA', 'DAY']);
+    const diaValNorm = normalizeDiaStr(rawDia, fechaSoloDia);
+
+    // Filtro por Semana
+    if (!isVerTodas && String(s) !== String(valSem)) return;
+
+    // Filtro por Día
+    if (valDia !== 'TODOS') {
+      const valDiaNorm = normalizeDiaStr(valDia);
+      if (diaValNorm !== valDiaNorm) return;
+    }
+
+    // Filtro por Fecha
+    if (valFecha !== 'TODAS') {
+      if (fechaSoloDia !== valFecha) return;
+    }
+
+    const tipoBusVal = String(getRowVal(r, ['TIPO_BUS', 'TIPO BUS', 'BUS_TIPO']) || '').trim();
+    const turnoVal = extractTurnoFromRow(r, rawFecha);
+    const placaVal = String(getRowVal(r, ['PLACA', 'UNIDAD', 'VEHICULO']) || '').trim();
+
+    // DNI y Nombre del colaborador
+    const rawRowDni = getRowVal(r, ['DNI', 'USERID', 'USER ID', 'DOCUMENTO', 'ID', 'CODIGO']);
+    const dniClean = cleanDni(rawRowDni);
+    const rawNombre = String(getRowVal(r, ['APELLIDOS Y NOMBRES', 'NOMBRE Y APELLIDO', 'NOMBRE', 'COLABORADOR', 'EMPLEADO', 'NAME']) || '').trim();
+
+    // Determinar si es una fila de pasajero real con DNI o nombre válido
+    const isPassengerRow = Boolean(
+      (dniClean && dniClean.length >= 4 && !['TOTAL', 'SUBTOTAL', 'NONE', 'N/D', '0'].includes(dniClean)) ||
+      (rawNombre && rawNombre.length >= 3 && !rawNombre.toUpperCase().includes('TOTAL'))
+    );
+
+    // Cantidad si la hoja viniera ya resumida por viaje
+    const rawPasajCol = getRowVal(r, ['PASAJEROS', 'TOTAL PASAJEROS', 'PASAJ', 'CANTIDAD PASAJEROS', 'CANT_PASAJEROS']);
+    const numPasajCol = parseFloat(String(rawPasajCol || '0').replace(/[^0-9.-]+/g, "")) || 0;
+
+    // Si la fila no tiene pasajero real ni cantidad de pasajeros > 0, se descarta (previene contar filas en blanco/totales)
+    if (!isPassengerRow && numPasajCol <= 0) return;
+
+    const ruta = resolveRutaFromRow(r, dniClean, rawRowDni, dominantMap, fechaSoloDia, turnoVal);
+
+    // Comprobar si el pasajero cumple los filtros demográficos (Área / Tipo / BD Maestra)
+    let passengerMatches = false;
+    if (!isDemographicFiltered) {
+      passengerMatches = true;
+    } else {
+      if (dniClean && filteredDniSet.has(dniClean)) {
+        passengerMatches = true;
+      } else if (rawRowDni && filteredDniSet.has(String(rawRowDni).trim().toUpperCase())) {
+        passengerMatches = true;
+      }
+    }
+
+    // Clave única del viaje de bus: un mismo bus atiende a todos los pasajeros de esa fecha + ruta + turno
+    const tripKey = isPassengerRow
+      ? `${fechaSoloDia || 'FECHA'}|${ruta}|${tipoBusVal || 'BUS'}${turnoVal ? '|' + turnoVal : ''}${placaVal ? '|' + placaVal : ''}`
+      : `${fechaSoloDia || 'FECHA'}|${ruta}|${tipoBusVal || 'BUS'}|trip_${anonymousTripCounter++}`;
+
+    const rawCap = getRowVal(r, ['CAPACIDAD', 'CAPACIDAD DE BUS', 'CAPACIDAD BUS', 'CAPACIDAD_BUS']);
+    let capNum = parseFloat(String(rawCap || '0').replace(/[^0-9.-]+/g, "")) || 0;
+    const rawCosto = getRowVal(r, ['COSTO TOTAL', 'COSTO', 'COSTO POR VIAJE', 'COSTO BUS', 'COSTO_TOTAL', 'TAX UNITARIO', 'TAX']);
+    let costoNum = parseFloat(String(rawCosto || '0').replace(/[^0-9.-]+/g, "")) || 0;
+
+    if (ruta === 'Desconocido') {
+      costoNum = 0;
+      capNum = 0;
+    } else {
+      if (costoNum <= 0) {
+        costoNum = getTarifaBus(tipoBusVal, ruta);
+      }
+      if (capNum <= 0) {
+        capNum = getCapacidadBus(tipoBusVal);
+      }
+    }
+
+    if (!tripsMap[tripKey]) {
+      tripsMap[tripKey] = {
+        tripKey,
+        fecha: fechaSoloDia,
+        ruta,
+        tipoBus: tipoBusVal,
+        capacidad: capNum,
+        costo: costoNum,
+        totalPasajerosBus: 0,
+        pasajerosFiltrados: 0,
+        pasajerosList: []
+      };
+    } else {
+      if (costoNum > 0 && (!tripsMap[tripKey].costo || tripsMap[tripKey].costo === 0)) {
+        tripsMap[tripKey].costo = costoNum;
+      }
+      if (capNum > 0 && (!tripsMap[tripKey].capacidad || tripsMap[tripKey].capacidad === 0)) {
+        tripsMap[tripKey].capacidad = capNum;
+      }
+    }
+
+    const trip = tripsMap[tripKey];
+    if (isPassengerRow) {
+      trip.totalPasajerosBus += 1;
+      if (passengerMatches) {
+        trip.pasajerosFiltrados += 1;
+        if (dniClean) uniqueColaboradoresSet.add(dniClean);
+        else if (rawNombre) uniqueColaboradoresSet.add(rawNombre);
+        trip.pasajerosList.push(dniClean || rawNombre);
+      }
+    } else {
+      const cant = numPasajCol > 0 ? numPasajCol : 1;
+      trip.totalPasajerosBus += cant;
+      trip.pasajerosFiltrados += cant;
+    }
+  });
+
+  // 5. Agregar métricas consolidadas por ruta aplicando prorrateo según filtros
+  const statsRuta = {};
+  Object.values(tripsMap).forEach(trip => {
+    // Si hay filtro demográfico, se omiten buses que no llevaron personal del grupo filtrado
+    if (isDemographicFiltered && trip.pasajerosFiltrados === 0) return;
+
+    const prop = trip.totalPasajerosBus > 0 ? (trip.pasajerosFiltrados / trip.totalPasajerosBus) : 1;
+    const pasajerosFinal = isDemographicFiltered ? trip.pasajerosFiltrados : trip.totalPasajerosBus;
+    const costoFinal = isDemographicFiltered ? (trip.costo * prop) : trip.costo;
+    const capFinal = isDemographicFiltered ? Math.max(pasajerosFinal, Math.round(trip.capacidad * prop)) : trip.capacidad;
+
+    if (!statsRuta[trip.ruta]) {
+      statsRuta[trip.ruta] = {
+        viajes: 0,
+        pasajeros: 0,
+        capacidad: 0,
+        costo: 0
+      };
+    }
+    const st = statsRuta[trip.ruta];
+    if (trip.ruta !== 'Desconocido') {
+      st.viajes += 1;
+      st.capacidad += capFinal;
+      st.costo += costoFinal;
+    }
+    st.pasajeros += pasajerosFinal;
+  });
+
+  const rutasArray = Object.keys(statsRuta).map(ruta => {
+    const st = statsRuta[ruta];
+    const isDesc = (ruta === 'Desconocido');
+    const pctOcup = (!isDesc && st.capacidad > 0) ? st.pasajeros / st.capacidad : 0;
+    const costoViaje = (!isDesc && st.viajes > 0) ? st.costo / st.viajes : 0;
+    const costoPasaj = (!isDesc && st.pasajeros > 0) ? st.costo / st.pasajeros : 0;
+
+    let estado = '-';
+    let estadoClass = '';
+    if (isDesc) {
+      estado = '⚠️ Sin Asignar';
+      estadoClass = 'badge badge-warning';
+    } else if (pctOcup >= 0.9) {
+      estado = '✅ Óptimo';
+      estadoClass = 'badge badge-success';
+    } else if (pctOcup >= 0.7) {
+      estado = '🔄 OK';
+      estadoClass = 'badge badge-info';
+    } else if (pctOcup >= 0.5) {
+      estado = '⚠️ Bajo';
+      estadoClass = 'badge badge-warning';
+    } else {
+      estado = '🔴 Muy Bajo';
+      estadoClass = 'badge badge-danger';
+    }
+
+    return {
+      ruta,
+      viajes: st.viajes,
+      pasajeros: st.pasajeros,
+      capacidad: st.capacidad,
+      pctOcup,
+      costo: st.costo,
+      costoViaje,
+      costoPasaj,
+      estado,
+      estadoClass
+    };
+  }).sort((a, b) => {
+    if (a.ruta === 'Desconocido') return 1;
+    if (b.ruta === 'Desconocido') return -1;
+    return a.ruta.localeCompare(b.ruta, undefined, { numeric: true });
+  });
+
+  // 6. Totales Ejecutivos de la Semana
+  let totalViajes = 0, totalCapacidad = 0, totalCosto = 0, totalPasajeros = 0;
+  rutasArray.forEach(r => {
+    totalViajes += r.viajes;
+    totalCapacidad += r.capacidad;
+    totalCosto += r.costo;
+    totalPasajeros += r.pasajeros;
+  });
+
+  const ocupacionPromGlobal = totalCapacidad > 0 ? totalPasajeros / totalCapacidad : 0;
+  const costoPromPasajero = totalPasajeros > 0 ? totalCosto / totalPasajeros : 0;
+  const costoPromViaje = totalViajes > 0 ? totalCosto / totalViajes : 0;
+  const rutasUnicasCount = rutasArray.filter(r => r.viajes > 0).length;
+
+  // Pintar KPIs en pantalla
+  const elViajes = document.getElementById('costTotalViajes');
+  if (elViajes) elViajes.innerText = totalViajes;
+
+  const elPasaj = document.getElementById('costTotalPasajeros');
+  if (elPasaj) elPasaj.innerText = totalPasajeros.toLocaleString('es-PE');
+
+  const subPasaj = document.querySelector('#costTotalPasajeros + .kpi-subtitle');
+  if (subPasaj) {
+    if (uniqueColaboradoresSet.size > 0 && uniqueColaboradoresSet.size !== totalPasajeros) {
+      subPasaj.innerText = `${uniqueColaboradoresSet.size} colaboradores únicos`;
+    } else {
+      subPasaj.innerText = 'Colaboradores movilizados';
+    }
+  }
+
+  const elCap = document.getElementById('costCapacidadTotal');
+  if (elCap) elCap.innerText = totalCapacidad.toLocaleString('es-PE');
+
+  const elOcup = document.getElementById('costOcupacionProm');
+  if (elOcup) elOcup.innerText = `${(ocupacionPromGlobal * 100).toFixed(0)}%`;
+
+  const elCosto = document.getElementById('costTotalSemana');
+  if (elCosto) elCosto.innerText = `S/ ${totalCosto.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const elCostoPasaj = document.getElementById('costPromPasajero');
+  if (elCostoPasaj) elCostoPasaj.innerText = `S/ ${costoPromPasajero.toFixed(2)}`;
+
+  const elCostoViaje = document.getElementById('costPromViaje');
+  if (elCostoViaje) elCostoViaje.innerText = `S/ ${costoPromViaje.toFixed(2)}`;
+
+  const elRutasU = document.getElementById('costRutasUnicas');
+  if (elRutasU) elRutasU.innerText = rutasUnicasCount;
+
+  // 6. Alertas de Flota
+  const rutasBajas = rutasArray.filter(r => r.pctOcup < 0.5).length;
+  const rutasAltas = rutasArray.filter(r => r.pctOcup >= 0.9).length;
+
+  let eficienciaGlobalTexto = '🔄 Aceptable';
+  let eficienciaColor = '#38bdf8';
+  let eficienciaMsg = 'Desempeño general balanceado.';
+
+  if (rutasAltas > 7) {
+    eficienciaGlobalTexto = '🟢 Excelente';
+    eficienciaColor = '#4ade80';
+    eficienciaMsg = 'Alta rentabilidad y demanda sólida.';
+  } else if (rutasBajas > 5) {
+    eficienciaGlobalTexto = '🔴 Crítico';
+    eficienciaColor = '#f87171';
+    eficienciaMsg = 'Alta subutilización de buses. Requiere ajuste urgente a unidades menores.';
+  } else if (rutasBajas > 2) {
+    eficienciaGlobalTexto = '⚠️ Mejorar';
+    eficienciaColor = '#fbbf24';
+    eficienciaMsg = 'Existen varias rutas con capacidad ociosa por optimizar.';
+  }
+
+  const elAltas = document.getElementById('alertRutasAltas');
+  if (elAltas) elAltas.innerText = rutasAltas;
+
+  const elBajas = document.getElementById('alertRutasBajas');
+  if (elBajas) elBajas.innerText = rutasBajas;
+
+  const elEfic = document.getElementById('alertEficienciaGlobal');
+  if (elEfic) {
+    elEfic.innerText = eficienciaGlobalTexto;
+    elEfic.style.color = eficienciaColor;
+  }
+
+  const elEficMsg = document.getElementById('alertEficienciaMsg');
+  if (elEficMsg) elEficMsg.innerText = eficienciaMsg;
+
+  // 7. Tabla Detalle por Ruta
+  const tbodyDetalle = document.getElementById('tbodyDetalleCostosSemana');
+  if (tbodyDetalle) {
+    if (rutasArray.length === 0) {
+      const filtroContexto = isVerTodas ? 'el rango seleccionado' : `la Semana ${valSem}${valDia !== 'TODOS' ? ' (' + valDia + ')' : ''}${valFecha !== 'TODAS' ? ' - ' + valFecha : ''}`;
+      tbodyDetalle.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #94a3b8; padding: 25px;"><i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> No se registraron viajes de colaboradores para ${filtroContexto} con los filtros demográficos actuales.</td></tr>`;
+    } else {
+      tbodyDetalle.innerHTML = rutasArray.map(r => {
+        const isDesc = (r.ruta === 'Desconocido');
+        const rutaDisplay = isDesc 
+          ? `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-circle-question"></i> Sin Ruta Asignada</span>` 
+          : `<span class="ruta-badge" style="background: ${getRutaColor(r.ruta)}22; color: ${getRutaColor(r.ruta)}; border: 1px solid ${getRutaColor(r.ruta)}44; padding: 3px 8px; border-radius: 4px;">${r.ruta}</span>`;
+
+        return `
+        <tr>
+          <td style="font-weight: 600; color: #f8fafc;">${rutaDisplay}</td>
+          <td style="text-align: center;">${isDesc ? '-' : r.viajes}</td>
+          <td style="text-align: center; font-weight: 600;">${r.pasajeros}</td>
+          <td style="text-align: center;">${isDesc ? '-' : r.capacidad}</td>
+          <td style="text-align: center; font-weight: 700; color: ${isDesc ? '#94a3b8' : (r.pctOcup < 0.5 ? '#f87171' : (r.pctOcup >= 0.7 ? '#4ade80' : '#fbbf24'))};">${isDesc ? '-' : (r.pctOcup * 100).toFixed(0) + '%'}</td>
+          <td style="text-align: right; color: #60a5fa; font-weight: 600;">${isDesc ? '-' : 'S/ ' + r.costo.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
+          <td style="text-align: right;">${isDesc ? '-' : 'S/ ' + r.costoViaje.toFixed(0)}</td>
+          <td style="text-align: right;">${isDesc ? '-' : 'S/ ' + r.costoPasaj.toFixed(2)}</td>
+          <td style="text-align: center;"><span class="${r.estadoClass}">${r.estado}</span></td>
+        </tr>
+      `;}).join('');
+    }
+  }
+
+  const tfootDetalle = document.getElementById('tfootDetalleCostosSemana');
+  if (tfootDetalle) {
+    tfootDetalle.innerHTML = `
+      <tr>
+        <td style="color: #60a5fa;">TOTAL</td>
+        <td style="text-align: center;">${totalViajes}</td>
+        <td style="text-align: center;">${totalPasajeros.toLocaleString('es-PE')}</td>
+        <td style="text-align: center;">${totalCapacidad.toLocaleString('es-PE')}</td>
+        <td style="text-align: center; color: #38bdf8;">${(ocupacionPromGlobal * 100).toFixed(0)}%</td>
+        <td style="text-align: right; color: #60a5fa;">S/ ${totalCosto.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
+        <td style="text-align: right;">S/ ${costoPromViaje.toFixed(0)}</td>
+        <td style="text-align: right;">S/ ${costoPromPasajero.toFixed(2)}</td>
+        <td style="text-align: center;">-</td>
+      </tr>
+    `;
+  }
+
+  // 8. Rankings Top 3 Más y Menos Eficientes (solo rutas con bus contratado)
+  const validRutas = rutasArray.filter(r => r.viajes > 0 && r.capacidad > 0);
+  const tbTop = document.getElementById('tbodyTopEficientes');
+  const tbBottom = document.getElementById('tbodyBottomEficientes');
+
+  if (validRutas.length === 0) {
+    if (tbTop) tbTop.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 14px;"><i class="fa-solid fa-circle-info"></i> Sin rutas vehiculares registradas</td></tr>`;
+    if (tbBottom) tbBottom.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 14px;"><i class="fa-solid fa-circle-info"></i> Sin rutas vehiculares registradas</td></tr>`;
+  } else if (validRutas.length === 1) {
+    const single = validRutas[0];
+    if (single.pctOcup >= 0.7) {
+      if (tbTop) {
+        tbTop.innerHTML = `
+          <tr>
+            <td style="font-weight: 600; color: #4ade80;">${single.ruta}</td>
+            <td style="text-align: center; font-weight: 700;">${(single.pctOcup * 100).toFixed(0)}%</td>
+            <td style="text-align: right; color: #cbd5e1;">S/ ${single.costoViaje.toFixed(0)}</td>
+          </tr>
+        `;
+      }
+      if (tbBottom) {
+        tbBottom.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #4ade80; padding: 14px;"><i class="fa-solid fa-circle-check"></i> Sin rutas críticas (&lt; 70%)</td></tr>`;
+      }
+    } else {
+      if (tbTop) {
+        tbTop.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 14px;"><i class="fa-solid fa-circle-info"></i> Ninguna ruta supera la meta operativa (≥ 70%)</td></tr>`;
+      }
+      if (tbBottom) {
+        tbBottom.innerHTML = `
+          <tr>
+            <td style="font-weight: 600; color: #f87171;">${single.ruta}</td>
+            <td style="text-align: center; font-weight: 700; color: #f87171;">${(single.pctOcup * 100).toFixed(0)}%</td>
+            <td style="text-align: right; color: #cbd5e1;">S/ ${single.costoViaje.toFixed(0)}</td>
+          </tr>
+        `;
+      }
+    }
+  } else {
+    // Si hay 2 o más rutas vehiculares
+    const ordenadasDesc = [...validRutas].sort((a, b) => b.pctOcup - a.pctOcup);
+    const top3Mas = ordenadasDesc.filter(r => r.pctOcup >= 0.5).slice(0, 3);
+    const ordenadasAsc = [...validRutas].sort((a, b) => a.pctOcup - b.pctOcup);
+    const top3Menos = ordenadasAsc.filter(r => r.pctOcup < 0.7).slice(0, 3);
+
+    if (tbTop) {
+      if (top3Mas.length === 0) {
+        tbTop.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 14px;"><i class="fa-solid fa-circle-info"></i> Ninguna ruta alcanza ocupación aceptable (≥ 50%)</td></tr>`;
+      } else {
+        tbTop.innerHTML = top3Mas.map(r => `
+          <tr>
+            <td style="font-weight: 600; color: #4ade80;">${r.ruta}</td>
+            <td style="text-align: center; font-weight: 700;">${(r.pctOcup * 100).toFixed(0)}%</td>
+            <td style="text-align: right; color: #cbd5e1;">S/ ${r.costoViaje.toFixed(0)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    if (tbBottom) {
+      if (top3Menos.length === 0) {
+        tbBottom.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #4ade80; padding: 14px;"><i class="fa-solid fa-circle-check"></i> Todas las rutas cumplen la meta (≥ 70%)</td></tr>`;
+      } else {
+        tbBottom.innerHTML = top3Menos.map(r => `
+          <tr>
+            <td style="font-weight: 600; color: #f87171;">${r.ruta}</td>
+            <td style="text-align: center; font-weight: 700; color: #f87171;">${(r.pctOcup * 100).toFixed(0)}%</td>
+            <td style="text-align: right; color: #cbd5e1;">S/ ${r.costoViaje.toFixed(0)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+  }
+
+  // 9. Recomendaciones de Toma de Decisiones
+  const p1Urgente = rutasBajas > 5 ? 'prioridad-urgente' : (rutasBajas > 2 ? 'prioridad-media' : 'prioridad-baja');
+  const p1Texto = rutasBajas > 5 ? '🔴 URGENTE' : (rutasBajas > 2 ? '🟡 MEDIA' : '🟢 BAJA');
+
+  const p2Urgente = rutasAltas > 3 ? 'prioridad-urgente' : (rutasAltas > 1 ? 'prioridad-media' : 'prioridad-baja');
+  const p2Texto = rutasAltas > 3 ? '🔴 URGENTE' : (rutasAltas > 1 ? '🟡 MEDIA' : '🟢 BAJA');
+
+  const p3Urgente = costoPromPasajero > 20 ? 'prioridad-urgente' : (costoPromPasajero > 15 ? 'prioridad-media' : 'prioridad-baja');
+  const p3Texto = costoPromPasajero > 20 ? '🔴 URGENTE' : (costoPromPasajero > 15 ? '🟡 MEDIA' : '🟢 BAJA');
+  const p3Recom = costoPromPasajero > 15 ? '⚠️ Optimizar rutas para reducir costo/pasajero' : '✅ Costo por pasajero controlado y aceptable';
+
+  const p4Urgente = ocupacionPromGlobal < 0.5 ? 'prioridad-urgente' : (ocupacionPromGlobal < 0.7 ? 'prioridad-media' : 'prioridad-baja');
+  const p4Texto = ocupacionPromGlobal < 0.5 ? '🔴 URGENTE' : (ocupacionPromGlobal < 0.7 ? '🟡 MEDIA' : '🟢 BAJA');
+  const p4Recom = ocupacionPromGlobal < 0.6 ? '⚠️ Revisar dimensionamiento general de flota' : (ocupacionPromGlobal < 0.75 ? '🔄 Monitorear tendencia operativa' : '✅ Ocupación saludable');
+
+  const p5Urgente = totalCosto > 35000 ? 'prioridad-urgente' : (totalCosto > 30000 ? 'prioridad-media' : 'prioridad-baja');
+  const p5Texto = totalCosto > 35000 ? '🔴 URGENTE' : (totalCosto > 30000 ? '🟡 MEDIA' : '🟢 BAJA');
+  const p5Recom = totalCosto > 30000 ? '📊 Evaluar renegociación con proveedores' : '✅ Dentro de presupuesto esperado';
+
+  const tbRecom = document.getElementById('tbodyRecomendacionesDecisiones');
+  if (tbRecom) {
+    tbRecom.innerHTML = `
+      <tr>
+        <td style="font-weight: 700; color: #94a3b8;">1</td>
+        <td style="font-weight: 600; color: #f8fafc;">Rutas con muy baja ocupación</td>
+        <td>${rutasBajas} rutas &lt; 50%</td>
+        <td>Considerar cambio a vans o vehículos menores (Sprinter/Custer)</td>
+        <td style="text-align: center;"><span class="prioridad-pill ${p1Urgente}">${p1Texto}</span></td>
+        <td style="color: #4ade80; font-weight: 600;">Ahorro 20-40% en costos</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 700; color: #94a3b8;">2</td>
+        <td style="font-weight: 600; color: #f8fafc;">Rutas con alta demanda</td>
+        <td>${rutasAltas} rutas ≥ 90%</td>
+        <td>Considerar bus adicional si supera capacidad asignada</td>
+        <td style="text-align: center;"><span class="prioridad-pill ${p2Urgente}">${p2Texto}</span></td>
+        <td style="color: #60a5fa;">Mejora satisfacción colaboradores</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 700; color: #94a3b8;">3</td>
+        <td style="font-weight: 600; color: #f8fafc;">Costo promedio por pasajero</td>
+        <td>S/ ${costoPromPasajero.toFixed(2)}</td>
+        <td>${p3Recom}</td>
+        <td style="text-align: center;"><span class="prioridad-pill ${p3Urgente}">${p3Texto}</span></td>
+        <td style="color: #cbd5e1;">Meta: &lt; S/ 15.00</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 700; color: #94a3b8;">4</td>
+        <td style="font-weight: 600; color: #f8fafc;">Ocupación promedio global</td>
+        <td>${(ocupacionPromGlobal * 100).toFixed(0)}%</td>
+        <td>${p4Recom}</td>
+        <td style="text-align: center;"><span class="prioridad-pill ${p4Urgente}">${p4Texto}</span></td>
+        <td style="color: #cbd5e1;">Meta: &gt; 70%</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 700; color: #94a3b8;">5</td>
+        <td style="font-weight: 600; color: #f8fafc;">Inversión semanal en transporte</td>
+        <td>S/ ${Math.round(totalCosto).toLocaleString('es-PE')}</td>
+        <td>${p5Recom}</td>
+        <td style="text-align: center;"><span class="prioridad-pill ${p5Urgente}">${p5Texto}</span></td>
+        <td style="color: #cbd5e1;">Benchmark: S/ 30,000/sem</td>
+      </tr>
+    `;
+  }
+
+  // 10. Proyección Mensual (x4)
+  const tbProy = document.getElementById('tbodyProyeccionMensual');
+  if (tbProy) {
+    tbProy.innerHTML = `
+      <tr>
+        <td style="font-weight: 600; color: #f8fafc;">Costo Total</td>
+        <td style="text-align: right; color: #60a5fa; font-weight: 600;">S/ ${Math.round(totalCosto).toLocaleString('es-PE')}</td>
+        <td style="text-align: right; color: #38bdf8; font-weight: 700;">S/ ${Math.round(totalCosto * 4).toLocaleString('es-PE')}</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 600; color: #f8fafc;">Pasajeros</td>
+        <td style="text-align: right;">${totalPasajeros.toLocaleString('es-PE')}</td>
+        <td style="text-align: right; font-weight: 600;">${(totalPasajeros * 4).toLocaleString('es-PE')}</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 600; color: #f8fafc;">Viajes</td>
+        <td style="text-align: right;">${totalViajes}</td>
+        <td style="text-align: right; font-weight: 600;">${totalViajes * 4}</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 600; color: #f8fafc;">Costo/Pasajero</td>
+        <td style="text-align: right;">S/ ${costoPromPasajero.toFixed(2)}</td>
+        <td style="text-align: right; font-weight: 600;">S/ ${costoPromPasajero.toFixed(2)}</td>
+      </tr>
+    `;
+  }
+
+  // 11. Gráficos de Costos (Solo si la pestaña está visible para evitar problemas de canvas oculto)
+  const viewCostosEl = document.getElementById('viewAnalisisCostos');
+  if (viewCostosEl && !viewCostosEl.classList.contains('hidden')) {
+    renderGraficosCostos(rutasArray);
+    renderChartTrazabilidadSemana(rawRows, valSem, isVerTodas, isDemographicFiltered, filteredDniSet);
+  }
+
+  if (typeof updateAiContextBanner === 'function') {
+    updateAiContextBanner();
+  }
+}
+
+// =========================================================
+// Gráficos de Costos y Eficiencia (Chart.js)
+// =========================================================
+
+function renderGraficosCostos(rutasArray) {
+  // Gráfico 1: % Ocupación por Ruta (solo rutas con bus/asientos contratados)
+  const ctxOcup = document.getElementById('chartOcupacionRutasCostos');
+  if (ctxOcup) {
+    const rutasOcup = rutasArray.filter(r => r.ruta !== 'Desconocido' && r.capacidad > 0);
+    const labels = rutasOcup.map(r => r.ruta.replace('RUTA ', 'R.'));
+    const dataOcup = rutasOcup.map(r => Math.round(r.pctOcup * 100));
+    const colorsOcup = rutasOcup.map(r => {
+      if (r.pctOcup >= 0.9) return '#22c55e'; // verde
+      if (r.pctOcup >= 0.7) return '#3b82f6'; // azul
+      if (r.pctOcup >= 0.5) return '#eab308'; // amarillo
+      return '#ef4444'; // rojo
+    });
+
+    if (AppState.charts['chartOcupacionRutasCostos']) {
+      AppState.charts['chartOcupacionRutasCostos'].destroy();
+    }
+
+    AppState.charts['chartOcupacionRutasCostos'] = new Chart(ctxOcup, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: '% Ocupación',
+          data: dataOcup,
+          backgroundColor: colorsOcup,
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: {
+              callback: (v) => v + '%'
+            },
+            grid: { color: 'rgba(255, 255, 255, 0.08)' }
+          },
+          x: {
+            grid: { display: false }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.parsed.y}% de ocupación`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Gráfico 2: Costo Total vs Pasajeros por Ruta
+  const ctxCostoPasaj = document.getElementById('chartCostoPasajerosRutas');
+  if (ctxCostoPasaj) {
+    const labels = rutasArray.map(r => r.ruta === 'Desconocido' ? 'Sin Ruta' : r.ruta.replace('RUTA ', 'R.'));
+    const dataCosto = rutasArray.map(r => r.costo);
+    const dataPasaj = rutasArray.map(r => r.pasajeros);
+
+    if (AppState.charts['chartCostoPasajerosRutas']) {
+      AppState.charts['chartCostoPasajerosRutas'].destroy();
+    }
+
+    AppState.charts['chartCostoPasajerosRutas'] = new Chart(ctxCostoPasaj, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Costo Total (S/)',
+            data: dataCosto,
+            backgroundColor: '#3b82f6',
+            borderRadius: 6,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Pasajeros Atendidos',
+            data: dataPasaj,
+            backgroundColor: '#10b981',
+            borderRadius: 6,
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            type: 'linear',
+            position: 'left',
+            ticks: {
+              callback: (v) => 'S/ ' + v
+            },
+            grid: { color: 'rgba(255, 255, 255, 0.08)' }
+          },
+          y1: {
+            type: 'linear',
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { precision: 0 }
+          },
+          x: { grid: { display: false } }
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { color: '#cbd5e1', boxWidth: 12 }
+          }
+        }
+      }
+    });
+  }
+}
+
+// =========================================================
+// Gráfico de Líneas: Trazabilidad y Fluctuación de Pasajeros durante la Semana
+// =========================================================
+
+function renderChartTrazabilidadSemana(rawRows, valSem, isVerTodas, isDemographicFiltered, filteredDniSet) {
+  const canvasEl = document.getElementById('chartTrazabilidadSemana');
+  if (!canvasEl) return;
+
+  const DIAS_OFICIALES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  if (!rawRows || rawRows.length === 0) {
+    if (AppState.charts['chartTrazabilidadSemana']) {
+      AppState.charts['chartTrazabilidadSemana'].destroy();
+      delete AppState.charts['chartTrazabilidadSemana'];
+    }
+    return;
+  }
+
+  // Agrupar filas por semana y por día de la semana
+  const weekDayMap = {};
+  const allWeeksSet = new Set();
+
+  rawRows.forEach(r => {
+    const rawFecha = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const fechaSoloDia = normalizeDateStr(rawFecha);
+
+    const s = parseInt(getRowVal(r, ['SEMANA', 'SEM']), 10);
+    if (isNaN(s) || s <= 0) return;
+    allWeeksSet.add(s);
+
+    const rawDia = getRowVal(r, ['DÍA', 'DIA', 'DAY']);
+    const diaNorm = normalizeDiaStr(rawDia, fechaSoloDia);
+    if (!diaNorm || !DIAS_OFICIALES.includes(diaNorm)) return;
+
+    // Filtro demográfico
+    const rawRowDni = getRowVal(r, ['DNI', 'USERID', 'USER ID', 'DOCUMENTO', 'ID', 'CODIGO']);
+    const dniClean = cleanDni(rawRowDni);
+    const rawNombre = String(getRowVal(r, ['APELLIDOS Y NOMBRES', 'NOMBRE Y APELLIDO', 'NOMBRE', 'COLABORADOR', 'EMPLEADO', 'NAME']) || '').trim();
+
+    const isPassengerRow = Boolean(
+      (dniClean && dniClean.length >= 4 && !['TOTAL', 'SUBTOTAL', 'NONE', 'N/D', '0'].includes(dniClean)) ||
+      (rawNombre && rawNombre.length >= 3 && !rawNombre.toUpperCase().includes('TOTAL'))
+    );
+    const rawPasajCol = getRowVal(r, ['PASAJEROS', 'TOTAL PASAJEROS', 'PASAJ', 'CANTIDAD PASAJEROS', 'CANT_PASAJEROS']);
+    const numPasajCol = parseFloat(String(rawPasajCol || '0').replace(/[^0-9.-]+/g, "")) || 0;
+    if (!isPassengerRow && numPasajCol <= 0) return;
+
+    if (isDemographicFiltered) {
+      let matches = false;
+      if (dniClean && filteredDniSet.has(dniClean)) matches = true;
+      else if (rawRowDni && filteredDniSet.has(String(rawRowDni).trim().toUpperCase())) matches = true;
+      if (!matches) return;
+    }
+
+    const cant = isPassengerRow ? 1 : numPasajCol;
+    const turnoVal = extractTurnoFromRow(r, rawFecha);
+    const isAM = turnoVal.includes('A.M') || turnoVal.includes('AM') || turnoVal.includes('MAÑ') || turnoVal.includes('MAN') || turnoVal.includes('INGRESO');
+
+    if (!weekDayMap[s]) weekDayMap[s] = {};
+    if (!weekDayMap[s][diaNorm]) {
+      weekDayMap[s][diaNorm] = { total: 0, am: 0, pm: 0, fechas: new Set() };
+    }
+    const bucket = weekDayMap[s][diaNorm];
+    bucket.total += cant;
+    if (isAM) bucket.am += cant;
+    else bucket.pm += cant;
+    if (fechaSoloDia) bucket.fechas.add(fechaSoloDia);
+  });
+
+  const semanasArr = Array.from(allWeeksSet).sort((a, b) => a - b);
+  let labels = [...DIAS_OFICIALES];
+  const datasets = [];
+  let maxPasajeros = 0;
+
+  const badgeSemEl = document.getElementById('badgeSemanaTrazabilidad');
+  const subEl = document.getElementById('subtituloTrazabilidadSemana');
+
+  if (!isVerTodas) {
+    // 1. Vista de Semana Seleccionada (detallada por turno y total)
+    const targetSem = parseInt(valSem, 10);
+    if (badgeSemEl) badgeSemEl.innerHTML = `<i class="fa-regular fa-calendar-check"></i> Semana ${valSem}`;
+    if (subEl) subEl.innerText = `Fluctuación diaria de pasajeros (Lunes a Domingo) desglosada por Turno Mañana y Turno Tarde para la Semana ${valSem}.`;
+
+    const semData = weekDayMap[targetSem] || {};
+
+    labels = DIAS_OFICIALES.map(d => {
+      const dayInfo = semData[d];
+      if (dayInfo && dayInfo.fechas && dayInfo.fechas.size > 0) {
+        const fStr = Array.from(dayInfo.fechas)[0];
+        const fShort = fStr.split('/').slice(0, 2).join('/');
+        return `${d} (${fShort})`;
+      }
+      return d;
+    });
+
+    const dataTotal = DIAS_OFICIALES.map(d => {
+      const val = semData[d] ? semData[d].total : null;
+      if (val !== null && val > maxPasajeros) maxPasajeros = val;
+      return val;
+    });
+
+    const dataAM = DIAS_OFICIALES.map(d => {
+      const val = semData[d] ? semData[d].am : null;
+      return val;
+    });
+
+    const dataPM = DIAS_OFICIALES.map(d => {
+      const val = semData[d] ? semData[d].pm : null;
+      return val;
+    });
+
+    datasets.push({
+      label: `Total Pasajeros (Semana ${valSem})`,
+      data: dataTotal,
+      borderColor: '#38bdf8',
+      backgroundColor: 'rgba(56, 189, 248, 0.14)',
+      fill: true,
+      borderWidth: 3,
+      pointBackgroundColor: '#38bdf8',
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 2,
+      pointRadius: 6,
+      pointHoverRadius: 9,
+      pointHitRadius: 12,
+      tension: 0.35,
+      spanGaps: false
+    });
+
+    datasets.push({
+      label: `Ingreso CD (Turno Mañana)`,
+      data: dataAM,
+      borderColor: '#10b981',
+      backgroundColor: 'transparent',
+      borderDash: [5, 4],
+      borderWidth: 2,
+      pointBackgroundColor: '#10b981',
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 1.5,
+      pointRadius: 5,
+      pointHoverRadius: 8,
+      pointHitRadius: 10,
+      tension: 0.35,
+      spanGaps: false
+    });
+
+    datasets.push({
+      label: `Salida CD (Turno Tarde)`,
+      data: dataPM,
+      borderColor: '#f59e0b',
+      backgroundColor: 'transparent',
+      borderDash: [5, 4],
+      borderWidth: 2,
+      pointBackgroundColor: '#f59e0b',
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 1.5,
+      pointRadius: 5,
+      pointHoverRadius: 8,
+      pointHitRadius: 10,
+      tension: 0.35,
+      spanGaps: false
+    });
+
+    // Comparativa con Promedio de Otras Semanas si existen
+    const otrasSemanas = semanasArr.filter(s => s !== targetSem);
+    if (otrasSemanas.length > 0) {
+      const dataPromOtras = DIAS_OFICIALES.map(d => {
+        let sum = 0, count = 0;
+        otrasSemanas.forEach(s => {
+          if (weekDayMap[s] && weekDayMap[s][d] && weekDayMap[s][d].total > 0) {
+            sum += weekDayMap[s][d].total;
+            count++;
+          }
+        });
+        return count > 0 ? Math.round(sum / count) : null;
+      });
+
+      if (dataPromOtras.some(v => v !== null)) {
+        datasets.push({
+          label: `Promedio Otras Semanas`,
+          data: dataPromOtras,
+          borderColor: '#94a3b8',
+          backgroundColor: 'transparent',
+          borderDash: [3, 3],
+          borderWidth: 1.5,
+          pointBackgroundColor: '#94a3b8',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          tension: 0.35,
+          spanGaps: false
+        });
+      }
+    }
+  } else {
+    // 2. Vista "Todas las Semanas": Trazabilidad comparativa por cada semana
+    if (badgeSemEl) badgeSemEl.innerHTML = `<i class="fa-solid fa-layer-group"></i> Todas las Semanas (${semanasArr.length})`;
+    if (subEl) subEl.innerText = `Comparativa de trazabilidad de cada semana sobre cómo fluctúa el volumen de colaboradores de Lunes a Domingo.`;
+
+    const colorPalette = ['#38bdf8', '#a855f7', '#f59e0b', '#10b981', '#ec4899', '#06b6d4', '#f97316', '#6366f1'];
+
+    semanasArr.forEach((s, idx) => {
+      const semData = weekDayMap[s] || {};
+      const dataW = DIAS_OFICIALES.map(d => {
+        const val = semData[d] ? semData[d].total : null;
+        if (val !== null && val > maxPasajeros) maxPasajeros = val;
+        return val;
+      });
+      const color = colorPalette[idx % colorPalette.length];
+      const isLatest = (idx === semanasArr.length - 1);
+
+      datasets.push({
+        label: `Semana ${s}`,
+        data: dataW,
+        borderColor: color,
+        backgroundColor: 'transparent',
+        borderWidth: isLatest ? 3 : 2,
+        pointBackgroundColor: color,
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 1.5,
+        pointRadius: isLatest ? 6 : 4,
+        pointHoverRadius: 8,
+        pointHitRadius: 10,
+        tension: 0.35,
+        spanGaps: false
+      });
+    });
+
+    if (semanasArr.length > 1) {
+      const dataProm = DIAS_OFICIALES.map(d => {
+        let sum = 0, count = 0;
+        semanasArr.forEach(s => {
+          if (weekDayMap[s] && weekDayMap[s][d] && weekDayMap[s][d].total > 0) {
+            sum += weekDayMap[s][d].total;
+            count++;
+          }
+        });
+        return count > 0 ? Math.round(sum / count) : null;
+      });
+
+      datasets.unshift({
+        label: `Promedio General`,
+        data: dataProm,
+        borderColor: '#f8fafc',
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        borderDash: [4, 4],
+        borderWidth: 2,
+        pointBackgroundColor: '#f8fafc',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.35,
+        spanGaps: false
+      });
+    }
+  }
+
+  if (AppState.charts['chartTrazabilidadSemana']) {
+    AppState.charts['chartTrazabilidadSemana'].destroy();
+  }
+
+  AppState.charts['chartTrazabilidadSemana'] = new Chart(canvasEl, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          suggestedMax: maxPasajeros > 0 ? Math.ceil(maxPasajeros * 1.25) : 10,
+          ticks: {
+            precision: 0,
+            color: '#94a3b8',
+            callback: (v) => v + ' colab.'
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.08)'
+          }
+        },
+        x: {
+          ticks: {
+            color: '#cbd5e1',
+            font: { weight: '600', size: 12 }
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.04)'
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: '#cbd5e1',
+            usePointStyle: true,
+            boxWidth: 8,
+            padding: 14,
+            font: { size: 12, weight: '500' }
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          titleColor: '#38bdf8',
+          bodyColor: '#f8fafc',
+          borderColor: '#334155',
+          borderWidth: 1,
+          padding: 12,
+          boxPadding: 6,
+          usePointStyle: true,
+          callbacks: {
+            label: (ctx) => {
+              if (ctx.parsed.y === null || isNaN(ctx.parsed.y)) return '';
+              return ` ${ctx.dataset.label}: ${ctx.parsed.y} colaboradores`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// =========================================================
+// MÓDULO: ASISTENTE LOGÍSTICO IA (GEMINI API & M365 COPILOT)
+// =========================================================
+
+AppState.aiHistory = [];
+AppState.isAiPaused = false;
+AppState.aiPauseRemaining = 0;
+AppState.aiPauseInterval = null;
+
+function getGeminiApiKey() {
+  // 1. Clave inyectada en window.APP_CONFIG (por GitHub Actions en despliegue)
+  if (window.APP_CONFIG && window.APP_CONFIG.GEMINI_API_KEY) {
+    const key = window.APP_CONFIG.GEMINI_API_KEY.trim();
+    if (key !== '' && key !== 'TU_GEMINI_API_KEY_AQUI' && key !== 'TU_CLIENT_ID_AQUI') {
+      return key;
+    }
+  }
+  // 2. Clave guardada en localStorage del navegador (útil para pruebas en localhost o fallback)
+  const saved = localStorage.getItem('DATANEXUS_GEMINI_KEY');
+  if (saved && saved.trim()) {
+    return saved.trim();
+  }
+  return '';
+}
+
+function hasGeminiProxy() {
+  return Boolean(window.APP_CONFIG && window.APP_CONFIG.HAS_GEMINI_PROXY);
+}
+
+const GEMINI_FALLBACK_MODELS = [
+  { version: 'v1beta', model: 'gemini-flash-lite-latest' },
+  { version: 'v1beta', model: 'gemini-2.5-flash-lite' },
+  { version: 'v1beta', model: 'gemini-flash-latest' },
+  { version: 'v1beta', model: 'gemini-2.5-flash' },
+  { version: 'v1beta', model: 'gemini-3.1-flash-lite' },
+  { version: 'v1beta', model: 'gemini-3-flash-preview' },
+  { version: 'v1beta', model: 'gemini-pro-latest' },
+  { version: 'v1beta', model: 'gemini-2.5-pro' }
+];
+
+async function fetchAvailableModels(apiKey) {
+  if (AppState.discoveredGeminiModels && AppState.discoveredGeminiModels.length > 0) {
+    return AppState.discoveredGeminiModels;
+  }
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, {
+      headers: { 'x-goog-api-key': apiKey }
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.models && Array.isArray(json.models)) {
+        const nonChatKeywords = ['tts', 'image', 'transcribe', 'veo', 'lyria', 'robotics', 'computer-use', 'deep-research', 'embedding', 'aqa', 'banana'];
+        const supported = json.models
+          .filter(m => {
+            if (!m.supportedGenerationMethods || !m.supportedGenerationMethods.includes('generateContent')) return false;
+            const name = (m.name || '').toLowerCase();
+            return !nonChatKeywords.some(kw => name.includes(kw));
+          })
+          .map(m => ({
+            version: 'v1beta',
+            model: m.name.replace(/^models\//, '')
+          }));
+
+        console.log('✅ Modelos de texto disponibles en tu proyecto Google:', supported.map(s => s.model));
+
+        // Priorizar: flash-lite (más rápido, sin saturación 503), flash, pro, otros
+        supported.sort((a, b) => {
+          const score = (name) => {
+            if (name.includes('flash-lite')) return 1;
+            if (name.includes('flash')) return 2;
+            if (name.includes('pro')) return 3;
+            return 4;
+          };
+          return score(a.model) - score(b.model);
+        });
+
+        if (supported.length > 0) {
+          AppState.discoveredGeminiModels = supported;
+          return supported;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('No se pudo listar modelos dinámicamente:', err);
+  }
+  return null;
+}
+
+async function callGeminiApiMultiModel(apiKey, promptPayload, systemInstructionText, chatHistory = []) {
+  // 1. Intentar descubrir modelos habilitados en este proyecto (si hay apiKey directa en frontend)
+  const discovered = apiKey ? await fetchAvailableModels(apiKey) : null;
+  let modelsToTry = discovered || [...GEMINI_FALLBACK_MODELS];
+
+  // Si ya descubrimos un modelo que respondió con éxito antes, ponerlo primero
+  if (AppState.confirmedGeminiModel) {
+    modelsToTry = [
+      AppState.confirmedGeminiModel,
+      ...modelsToTry.filter(m => m.model !== AppState.confirmedGeminiModel.model)
+    ];
+  }
+
+  let lastErrorDetail = null;
+  const proxyEndpoint = (window.APP_CONFIG && window.APP_CONFIG.VERCEL_GEMINI_ENDPOINT) || '/api/gemini';
+
+  for (const m of modelsToTry) {
+    const url = apiKey
+      ? `https://generativelanguage.googleapis.com/${m.version}/models/${m.model}:generateContent?key=${encodeURIComponent(apiKey)}`
+      : proxyEndpoint;
+
+    // Construir contents respetando la alternancia de turnos (user -> model -> user)
+    const contents = [];
+    if (chatHistory && Array.isArray(chatHistory) && chatHistory.length > 0) {
+      // Tomamos hasta los últimos 6 turnos para mantener el prompt ágil y con contexto
+      const recent = chatHistory.slice(-6);
+      recent.forEach(msg => {
+        contents.push({
+          role: msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        });
+      });
+    }
+
+    // Agregar el turno actual del usuario con el contexto logístico embebido
+    contents.push({
+      role: 'user',
+      parts: [{ text: promptPayload }]
+    });
+
+    const bodyPayload = {
+      contents: contents,
+      generationConfig: {
+        temperature: 0.35,
+        maxOutputTokens: 2048
+      }
+    };
+
+    if (systemInstructionText && m.version !== 'v1') {
+      bodyPayload.systemInstruction = {
+        parts: [{ text: systemInstructionText }]
+      };
+    }
+
+    // Hasta 2 intentos por modelo en caso de 503 (spikes momentáneos de demanda)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const fetchOptions = apiKey
+          ? {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey
+              },
+              body: JSON.stringify(bodyPayload)
+            }
+          : {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: m.model, version: m.version, bodyPayload })
+            };
+
+        const response = await fetch(url, fetchOptions);
+
+        if (response.ok) {
+          AppState.confirmedGeminiModel = m;
+          const data = await response.json();
+          return { ok: true, data };
+        }
+
+        if (response.status === 429) {
+          return { ok: false, status: 429 };
+        }
+
+        if (response.status === 400) {
+          const errJson = await response.json().catch(() => ({}));
+          console.warn(`Error 400 en modelo ${m.model}:`, errJson);
+          const msg = errJson?.error?.message || '';
+          if (msg.includes('API key not valid') || msg.includes('API_KEY_INVALID')) {
+            return { ok: false, status: 400, message: msg };
+          }
+          lastErrorDetail = errJson;
+          break;
+        }
+
+        // Si es 503 (alta demanda en este modelo específico de Google)
+        if (response.status === 503) {
+          lastErrorDetail = await response.json().catch(() => ({ error: { message: 'El modelo tiene alta demanda temporal.' } }));
+          console.warn(`Modelo ${m.model} con alta demanda (503, intento ${attempt}), probando alternativa...`);
+          if (attempt === 1) {
+            await new Promise(r => setTimeout(r, 600));
+            continue;
+          } else {
+            break; // Salta al siguiente modelo de la lista
+          }
+        }
+
+        // Si es 404 (modelo no soportado en este endpoint)
+        if (response.status === 404) {
+          console.warn(`Modelo ${m.model} no encontrado (404), saltando al siguiente...`);
+          lastErrorDetail = await response.json().catch(() => ({}));
+          break; // Pasa al siguiente modelo
+        }
+
+        lastErrorDetail = await response.json().catch(() => ({}));
+      } catch (networkErr) {
+        lastErrorDetail = { error: { message: networkErr.message } };
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    status: lastErrorDetail?.error?.code || 500,
+    message: lastErrorDetail?.error?.message || 'Los servidores de Google presentan alta demanda en este momento. Por favor reintenta en unos segundos.'
+  };
+}
+
+function initAiAssistant() {
+  const btnFloating = document.getElementById('btnFloatingAi');
+  const btnHeader = document.getElementById('btnHeaderAiAssistant');
+  const drawer = document.getElementById('aiChatDrawer');
+  const overlay = document.getElementById('aiDrawerOverlay');
+  const btnClose = document.getElementById('btnCloseAiDrawer');
+  const btnClearChat = document.getElementById('btnClearAiChat');
+  const btnExportCopilot = document.getElementById('btnExportCopilotQuick');
+  const btnSend = document.getElementById('btnSendAiChat');
+  const inputMsg = document.getElementById('aiChatInput');
+
+  updateAiStatusUI();
+  if (window.GoogleSheetsService && typeof window.GoogleSheetsService.getClientId === 'function') {
+    window.GoogleSheetsService.getClientId().then(() => updateAiStatusUI());
+  }
+
+  // Abrir y Cerrar Drawer
+  const openDrawer = () => {
+    if (drawer) drawer.classList.add('open');
+    if (overlay) overlay.classList.add('active');
+    updateAiContextBanner();
+    if (inputMsg) inputMsg.focus();
+  };
+
+  const closeDrawer = () => {
+    if (drawer) drawer.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+  };
+
+  if (btnFloating) btnFloating.addEventListener('click', openDrawer);
+  if (btnHeader) btnHeader.addEventListener('click', openDrawer);
+  if (btnClose) btnClose.addEventListener('click', closeDrawer);
+  if (overlay) overlay.addEventListener('click', closeDrawer);
+
+  // Limpiar Chat
+  if (btnClearChat) {
+    btnClearChat.addEventListener('click', () => {
+      AppState.aiHistory = [];
+      const container = document.getElementById('aiMessagesContainer');
+      if (container) {
+        container.innerHTML = `
+          <div class="ai-msg assistant">
+            <div class="ai-msg-avatar"><i class="fa-solid fa-robot"></i></div>
+            <div class="ai-msg-bubble">
+              <p>¡Conversación reiniciada! Soy tu <b>Asistente de Optimización de Transporte</b> para el Centro de Distribución.</p>
+              <p>Tengo acceso a las semanas operativas, ocupación de buses, costos y personal. ¿Qué deseas analizar?</p>
+            </div>
+          </div>
+        `;
+      }
+    });
+  }
+
+  // Exportar a Microsoft Copilot
+  if (btnExportCopilot) {
+    btnExportCopilot.addEventListener('click', () => {
+      exportToMicrosoftCopilot();
+    });
+  }
+
+  // Chips de Preguntas Rápidas
+  document.querySelectorAll('.ai-chip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const query = btn.getAttribute('data-query');
+      if (query && inputMsg) {
+        inputMsg.value = query;
+        sendUserAiMessage();
+      }
+    });
+  });
+
+  // Enviar Mensaje
+  if (btnSend) {
+    btnSend.addEventListener('click', () => {
+      sendUserAiMessage();
+    });
+  }
+
+  if (inputMsg) {
+    inputMsg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendUserAiMessage();
+      }
+    });
+
+    // Auto-expand textarea
+    inputMsg.addEventListener('input', () => {
+      inputMsg.style.height = 'auto';
+      inputMsg.style.height = Math.min(inputMsg.scrollHeight, 120) + 'px';
+    });
+  }
+}
+
+function updateAiStatusUI() {
+  const dot = document.getElementById('aiStatusDot');
+  const text = document.getElementById('aiStatusText');
+  const key = getGeminiApiKey();
+
+  if (AppState.isAiPaused) {
+    if (dot) dot.className = 'ai-status-dot paused';
+    if (text) text.innerText = 'En Pausa (Esperando cuota)';
+    return;
+  }
+
+  if (key || hasGeminiProxy()) {
+    if (dot) dot.className = 'ai-status-dot';
+    if (text) text.innerText = 'Conectado (Gemini Free)';
+  } else {
+    if (dot) dot.className = 'ai-status-dot error';
+    if (text) text.innerText = 'Sin Clave Interna';
+  }
+}
+
+function updateAiContextBanner() {
+  const banner = document.getElementById('aiContextSummaryText');
+  if (!banner) return;
+
+  const selSem = document.getElementById('filtroSemana')?.value || AppState.semanaSeleccionada || 'TODAS';
+  const selDia = document.getElementById('filtroDia')?.value || 'TODOS';
+  const selFecha = document.getElementById('filtroFecha')?.value || 'TODAS';
+
+  const costoEl = document.getElementById('costTotalSemana')?.innerText || document.getElementById('kpiCostoDia')?.innerText || 'S/ 0';
+  const pasajEl = document.getElementById('costTotalPasajeros')?.innerText || document.getElementById('kpiTotalEmps')?.innerText || '0';
+  const ocupEl = document.getElementById('costOcupacionProm')?.innerText || document.getElementById('kpiOcupacionDia')?.innerText || '0%';
+
+  let semText = (selSem === 'TODAS') ? 'Todas las Semanas' : `Semana ${selSem}`;
+  if (selDia !== 'TODOS') semText += ` (${selDia})`;
+  if (selFecha !== 'TODAS') semText += ` [${selFecha}]`;
+
+  banner.innerHTML = `<i class="fa-solid fa-database" style="color: #38bdf8;"></i> <span>Contexto: <b>${semText}</b> • ${pasajEl} pasajeros • Ocup. ${ocupEl} • ${costoEl}</span>`;
+}
+
+function getHistoricalWeeksSummary() {
+  if (!AppState.rawRegistroDiario || AppState.rawRegistroDiario.length === 0) {
+    return 'No hay datos cargados en el Registro Diario.';
+  }
+
+  const semMap = {};
+
+  AppState.rawRegistroDiario.forEach(r => {
+    const rawSem = getRowVal(r, ['SEMANA', 'SEM']);
+    const s = parseInt(rawSem, 10);
+    if (isNaN(s) || s <= 0) return;
+
+    if (!semMap[s]) {
+      semMap[s] = { trips: {}, pasajerosTotal: 0 };
+    }
+
+    const rawFecha = getRowVal(r, ['FECHA', 'FECHA DE VIAJE', 'DATE', 'DIA FECHA']);
+    const fecha = normalizeDateStr(rawFecha) || 'FECHA';
+    const rutaRaw = String(getRowVal(r, ['RUTA', 'RUTA ASIGNADA', 'LINEA']) || '').trim();
+    if (!rutaRaw && fecha === 'FECHA') return;
+
+    const ruta = rutaRaw.toUpperCase().startsWith('RUTA') ? rutaRaw.toUpperCase() : (rutaRaw ? `RUTA ${rutaRaw.toUpperCase()}` : 'RUTA DESCONOCIDA');
+    const tipoBus = String(getRowVal(r, ['TIPO_BUS', 'TIPO BUS', 'BUS_TIPO']) || '').trim();
+    const turno = String(getRowVal(r, ['TURNO', 'HORA', 'HORARIO', 'SENTIDO']) || '').trim();
+    const placa = String(getRowVal(r, ['PLACA', 'UNIDAD', 'VEHICULO']) || '').trim();
+
+    const rawDni = getRowVal(r, ['DNI', 'USERID', 'USER ID', 'DOCUMENTO', 'ID', 'CODIGO']);
+    const dniClean = cleanDni(rawDni);
+    const rawNom = String(getRowVal(r, ['APELLIDOS Y NOMBRES', 'NOMBRE Y APELLIDO', 'NOMBRE', 'COLABORADOR', 'EMPLEADO']) || '').trim();
+    const isPassenger = Boolean(
+      (dniClean && dniClean.length >= 4 && !['TOTAL', 'SUBTOTAL', 'NONE', 'N/D', '0'].includes(dniClean)) ||
+      (rawNom && rawNom.length >= 3 && !rawNom.toUpperCase().includes('TOTAL'))
+    );
+
+    const numPasaj = parseFloat(String(getRowVal(r, ['PASAJEROS', 'TOTAL PASAJEROS', 'PASAJ']) || '0').replace(/[^0-9.-]+/g, '')) || 0;
+    if (!isPassenger && numPasaj <= 0) return;
+
+    const tripKey = `${fecha}|${ruta}|${tipoBus}|${turno}|${placa}`;
+    const semData = semMap[s];
+
+    if (!semData.trips[tripKey]) {
+      const cap = parseFloat(String(getRowVal(r, ['CAPACIDAD', 'CAPACIDAD DE BUS', 'CAPACIDAD BUS']) || '0').replace(/[^0-9.-]+/g, '')) || 50;
+      const costo = parseFloat(String(getRowVal(r, ['COSTO TOTAL', 'COSTO', 'COSTO POR VIAJE']) || '0').replace(/[^0-9.-]+/g, '')) || 0;
+      semData.trips[tripKey] = {
+        ruta,
+        capacidad: cap > 0 ? cap : 50,
+        costo: costo,
+        pasajeros: 0
+      };
+    }
+
+    const t = semData.trips[tripKey];
+    const addPas = isPassenger ? 1 : (numPasaj > 0 ? numPasaj : 1);
+    t.pasajeros += addPas;
+    semData.pasajerosTotal += addPas;
+  });
+
+  const sortedWeeks = Object.keys(semMap).map(Number).sort((a, b) => a - b);
+  if (sortedWeeks.length === 0) return 'Sin historial de semanas disponible.';
+
+  const lines = sortedWeeks.map(s => {
+    const semData = semMap[s];
+    const tripList = Object.values(semData.trips);
+    const viajes = tripList.length;
+    let capTotal = 0;
+    let costoTotal = 0;
+    let pasTotal = 0;
+    const rutaStats = {};
+
+    tripList.forEach(t => {
+      capTotal += t.capacidad;
+      costoTotal += t.costo;
+      pasTotal += t.pasajeros;
+      if (!rutaStats[t.ruta]) rutaStats[t.ruta] = { cap: 0, pas: 0 };
+      rutaStats[t.ruta].cap += t.capacidad;
+      rutaStats[t.ruta].pas += t.pasajeros;
+    });
+
+    const ocup = capTotal > 0 ? Math.round((pasTotal / capTotal) * 100) : 0;
+    const costoPas = pasTotal > 0 ? (costoTotal / pasTotal).toFixed(2) : '0.00';
+
+    const criticas = Object.keys(rutaStats)
+      .map(r => ({
+        ruta: r,
+        pct: rutaStats[r].cap > 0 ? Math.round((rutaStats[r].pas / rutaStats[r].cap) * 100) : 0
+      }))
+      .filter(r => r.pct < 50)
+      .sort((a, b) => a.pct - b.pct)
+      .slice(0, 3)
+      .map(r => `${r.ruta} (${r.pct}%)`);
+
+    const critStr = criticas.length > 0 ? ` | Críticas (<50%): ${criticas.join(', ')}` : ' | Ocupación balanceada';
+    return `• Semana ${s}: ${viajes} viajes | ${pasTotal} pasajeros | Capacidad: ${capTotal} (${ocup}% ocupación) | Costo: S/ ${Math.round(costoTotal).toLocaleString('es-PE')} | Costo/Pasajero: S/ ${costoPas}${critStr}`;
+  });
+
+  return lines.join('\n');
+}
+
+function getLogisticsLiveContext() {
+  const selSem = document.getElementById('filtroSemana')?.value || AppState.semanaSeleccionada || 'TODAS';
+  const selDia = document.getElementById('filtroDia')?.value || 'TODOS';
+  const selFecha = document.getElementById('filtroFecha')?.value || 'TODAS';
+
+  const totalViajes = document.getElementById('costTotalViajes')?.innerText || document.getElementById('rdViajesSem')?.innerText || '0';
+  const totalPasaj = document.getElementById('costTotalPasajeros')?.innerText || document.getElementById('kpiTotalEmps')?.innerText || '0';
+  const totalCap = document.getElementById('costCapacidadTotal')?.innerText || '0';
+  const ocupProm = document.getElementById('costOcupacionProm')?.innerText || document.getElementById('kpiOcupacionDia')?.innerText || '0%';
+  const totalCosto = document.getElementById('costTotalSemana')?.innerText || document.getElementById('kpiCostoDia')?.innerText || 'S/ 0';
+  const costoPromPasaj = document.getElementById('costPromPasajero')?.innerText || 'S/ 0';
+  const costoPromViaje = document.getElementById('costPromViaje')?.innerText || 'S/ 0';
+
+  // Rutas de la tabla de costos
+  const rows = Array.from(document.querySelectorAll('#tbodyDetalleCostosSemana tr'));
+  const rutasData = [];
+  rows.forEach(tr => {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length >= 8) {
+      rutasData.push({
+        ruta: tds[0].innerText.trim(),
+        viajes: tds[1].innerText.trim(),
+        pasajeros: tds[2].innerText.trim(),
+        capacidad: tds[3].innerText.trim(),
+        ocupacion: tds[4].innerText.trim(),
+        costoTotal: tds[5].innerText.trim(),
+        costoViaje: tds[6].innerText.trim(),
+        costoPasaj: tds[7].innerText.trim()
+      });
+    }
+  });
+
+  let rutasSummary = '';
+  if (rutasData.length > 0) {
+    rutasSummary = rutasData.map(r => 
+      `- ${r.ruta}: ${r.viajes} viajes | ${r.pasajeros}/${r.capacidad} asientos (${r.ocupacion} ocupación) | Costo Total: ${r.costoTotal} | Costo/Viaje: ${r.costoViaje} | Costo/Pasajero: ${r.costoPasaj}`
+    ).join('\n');
+  } else {
+    rutasSummary = 'No hay rutas calculadas actualmente con los filtros seleccionados.';
+  }
+
+  const multiWeekSummary = getHistoricalWeeksSummary();
+
+  return `
+[SEMANA Y FILTROS ACTIVOS EN PANTALLA]
+- Período Activo: ${selSem === 'TODAS' ? 'Todas las Semanas' : 'Semana ' + selSem} | Día: ${selDia} | Fecha: ${selFecha}
+- Viajes Totales: ${totalViajes}
+- Pasajeros Totales: ${totalPasaj}
+- Capacidad Total de Flota: ${totalCap} asientos
+- % Ocupación Global: ${ocupProm} (Meta benchmark: > 70%)
+- Costo Total Invertido: ${totalCosto}
+- Costo Promedio por Viaje: ${costoPromViaje}
+- Costo Promedio por Pasajero: ${costoPromPasaj} (Meta benchmark: < S/ 15.00)
+
+[DESGLOSE DE RUTAS EVALUADAS EN PANTALLA]
+${rutasSummary}
+
+[HISTORIAL MULTI-SEMANAL DISPONIBLE EN EL SISTEMA (SEMANA A SEMANA)]
+${multiWeekSummary}
+`.trim();
+}
+
+async function sendUserAiMessage() {
+  const inputMsg = document.getElementById('aiChatInput');
+  if (!inputMsg) return;
+
+  const userText = inputMsg.value.trim();
+  if (!userText) return;
+
+  // Verificar si está en pausa preventiva por cuota (429)
+  if (AppState.isAiPaused) {
+    if (window.ClipboardUtil) ClipboardUtil.showToast(`El asistente está en pausa preventiva (${AppState.aiPauseRemaining}s restantes). Espera a que termine para proteger tu cuota gratuita.`, 'warning');
+    return;
+  }
+
+  // Obtener clave API (desde config.js en GitHub Pages, proxy /api/gemini en Vercel, o localStorage)
+  const apiKey = getGeminiApiKey();
+  if (!apiKey && !hasGeminiProxy()) {
+    appendSystemChatMessage('⚠️ <b>Clave de API no configurada:</b><br>Configura el secreto <code>GEMINI_API_KEY</code> en tu repositorio de GitHub (<b>Settings &gt; Secrets and variables &gt; Actions</b>) o en las Variables de Entorno de Vercel.<br><small style="color:#94a3b8;">Si estás en pruebas locales, puedes activarla temporalmente ejecutando en la consola: <code>localStorage.setItem("DATANEXUS_GEMINI_KEY", "tu_clave")</code>.</small>');
+    return;
+  }
+
+  // Pintar mensaje del usuario
+  appendUserChatMessage(userText);
+  inputMsg.value = '';
+  inputMsg.style.height = 'auto';
+
+  // Mostrar indicador de "Escribiendo..."
+  const typingBubbleId = showTypingIndicator();
+
+  // Preparar contexto logístico si el checkbox está activo
+  const checkContext = document.getElementById('checkIncludeContext');
+  const includeContext = checkContext ? checkContext.checked : true;
+  const liveContext = includeContext ? getLogisticsLiveContext() : '';
+
+  const systemInstructionText = `Eres el Asistente Experto en Optimización de Transporte y Logística del Centro de Distribución.
+Tu labor es asesorar a gerentes, jefaturas y supervisores sobre la eficiencia del transporte de colaboradores, costos, ocupación y rutas.
+
+DIRECTRICES CONVERSACIONALES (MUY IMPORTANTE):
+1. **Sé Dinámico y Natural:** NUNCA empieces cada respuesta con la misma introducción rígida ("Estimado equipo gerencial..."). Varía tu estilo, ve directo al grano y habla como un asesor logístico senior en una reunión real.
+2. **Memoria y Continuidad de Chat:** Si el usuario te hace preguntas de seguimiento (por ejemplo: "¿qué más sugieres?", "¿por qué?", "¿cómo lo implemento?", "¿qué rutas cambiarías?"), continúa la conversación aportando NUEVAS ideas, desgloses tácticos o respuestas específicas sin repetir diagnósticos ni introducciones de mensajes previos.
+3. **Análisis Multi-semanal y Comparativas:** Cuentas con el [HISTORIAL MULTI-SEMANAL] de la Semana 30 a la Semana 36. Si te preguntan por un rango de semanas, compara los números reales semana a semana (viajes, pasajeros, ocupación % y costo por pasajero) y explica la tendencia (si empeoró, mejoró o se estancó).
+4. **Cálculos Reales:** Basa tus respuestas exclusivamente en las cifras provistas en el contexto. No inventes números.
+5. **Benchmarks:**
+   - Meta de Ocupación: > 70%. Rutas con < 50% son críticas.
+   - Meta de Costo por Pasajero: < S/ 15.00.
+   - Sugerencia de Unidades: Para rutas con < 20 pasajeros en bus de 50, recomienda sustituir por Vans/Sprinter (15-20 asientos) ahorrando 25% a 40% por viaje.
+6. **Formato:** Usa viñetas limpias y resalta las cifras y nombres de ruta en **negrita**.`;
+
+  // Construir el prompt para Gemini
+  const promptPayload = includeContext 
+    ? `DATOS LOGÍSTICOS DEL DASHBOARD:\n${liveContext}\n\nCONSULTA DEL USUARIO:\n${userText}`
+    : userText;
+
+  const result = await callGeminiApiMultiModel(apiKey, promptPayload, systemInstructionText, AppState.aiHistory);
+
+  removeTypingIndicator(typingBubbleId);
+
+  if (result.status === 429) {
+    triggerAiQuotaPause(60);
+    appendSystemChatMessage(`⏳ <b>Límite Temporal Gratuito Alcanzado (HTTP 429)</b><br>
+Has alcanzado el límite de peticiones por minuto del nivel gratuito de Google AI Studio. 
+<br><br>
+<b>No te preocupes: tu cuenta sigue siendo 100% gratuita y no genera ningún cobro.</b> 
+El bot se ha pausado preventivamente y se reanudará automáticamente en <b>60 segundos</b>.`);
+    return;
+  }
+
+  if (result.status === 400) {
+    appendSystemChatMessage(`❌ <b>Clave API Inválida (HTTP 400)</b><br>
+Google AI Studio no reconoció la clave configurada. Verifica que sea la clave correcta.`);
+    return;
+  }
+
+  if (!result.ok) {
+    appendSystemChatMessage(`⚠️ <b>Error en la consulta:</b> ${result.message || 'Error al conectar con Gemini'}`);
+    return;
+  }
+
+  const botReply = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (botReply) {
+    appendAssistantChatMessage(botReply);
+    AppState.aiHistory.push(
+      { role: 'user', content: userText },
+      { role: 'model', content: botReply }
+    );
+    // Limitar historial a los últimos 10 mensajes para que la memoria sea rápida y relevante
+    if (AppState.aiHistory.length > 10) {
+      AppState.aiHistory = AppState.aiHistory.slice(-10);
+    }
+  } else {
+    appendSystemChatMessage('No se recibió respuesta válida del modelo.');
+  }
+}
+
+function triggerAiQuotaPause(seconds) {
+  AppState.isAiPaused = true;
+  AppState.aiPauseRemaining = seconds;
+  updateAiStatusUI();
+  if (window.GoogleSheetsService && typeof window.GoogleSheetsService.getClientId === 'function') {
+    window.GoogleSheetsService.getClientId().then(() => updateAiStatusUI());
+  }
+
+  const banner = document.getElementById('aiPausedBanner');
+  const timerBadge = document.getElementById('aiCountdownTimer');
+  const btnSend = document.getElementById('btnSendAiChat');
+  const inputMsg = document.getElementById('aiChatInput');
+
+  if (banner) banner.classList.add('active');
+  if (timerBadge) timerBadge.innerText = `${AppState.aiPauseRemaining}s`;
+  if (btnSend) btnSend.disabled = true;
+  if (inputMsg) inputMsg.disabled = true;
+
+  if (AppState.aiPauseInterval) clearInterval(AppState.aiPauseInterval);
+
+  AppState.aiPauseInterval = setInterval(() => {
+    AppState.aiPauseRemaining--;
+    if (timerBadge) timerBadge.innerText = `${AppState.aiPauseRemaining}s`;
+
+    if (AppState.aiPauseRemaining <= 0) {
+      clearInterval(AppState.aiPauseInterval);
+      AppState.isAiPaused = false;
+      if (banner) banner.classList.remove('active');
+      if (btnSend) btnSend.disabled = false;
+      if (inputMsg) {
+        inputMsg.disabled = false;
+        inputMsg.focus();
+      }
+      updateAiStatusUI();
+  if (window.GoogleSheetsService && typeof window.GoogleSheetsService.getClientId === 'function') {
+    window.GoogleSheetsService.getClientId().then(() => updateAiStatusUI());
+  }
+      if (window.ClipboardUtil) ClipboardUtil.showToast('✅ Asistente reanudado. Ya puedes hacer consultas.', 'success');
+      appendSystemChatMessage('✅ <b>Pausa preventiva finalizada.</b> El asistente está listo nuevamente para responder.');
+    }
+  }, 1000);
+}
+
+function appendUserChatMessage(text) {
+  const container = document.getElementById('aiMessagesContainer');
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'ai-msg user';
+  div.innerHTML = `
+    <div class="ai-msg-avatar"><i class="fa-solid fa-user"></i></div>
+    <div class="ai-msg-bubble"><p>${escapeHtml(text)}</p></div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendAssistantChatMessage(markdownText) {
+  const container = document.getElementById('aiMessagesContainer');
+  if (!container) return;
+
+  const formattedHtml = formatMarkdownToHtml(markdownText);
+  const div = document.createElement('div');
+  div.className = 'ai-msg assistant';
+  div.innerHTML = `
+    <div class="ai-msg-avatar"><i class="fa-solid fa-robot"></i></div>
+    <div class="ai-msg-bubble">${formattedHtml}</div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendSystemChatMessage(htmlContent) {
+  const container = document.getElementById('aiMessagesContainer');
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'ai-msg system-notice';
+  div.innerHTML = `
+    <div class="ai-msg-bubble">${htmlContent}</div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function showTypingIndicator() {
+  const container = document.getElementById('aiMessagesContainer');
+  if (!container) return null;
+
+  const id = 'typing_' + Date.now();
+  const div = document.createElement('div');
+  div.id = id;
+  div.className = 'ai-msg assistant';
+  div.innerHTML = `
+    <div class="ai-msg-avatar"><i class="fa-solid fa-robot"></i></div>
+    <div class="ai-msg-bubble">
+      <div class="ai-typing-indicator">
+        <div class="ai-typing-dot"></div>
+        <div class="ai-typing-dot"></div>
+        <div class="ai-typing-dot"></div>
+      </div>
+    </div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return id;
+}
+
+function removeTypingIndicator(id) {
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatMarkdownToHtml(md) {
+  if (!md) return '';
+  let html = escapeHtml(md);
+
+  // Headers (###, ##, #)
+  html = html.replace(/^### (.*$)/gim, '<h4 style="color:#60a5fa; margin:10px 0 4px 0; font-size:0.95rem;">$1</h4>');
+  html = html.replace(/^## (.*$)/gim, '<h3 style="color:#38bdf8; margin:12px 0 6px 0; font-size:1.05rem;">$1</h3>');
+  html = html.replace(/^# (.*$)/gim, '<h2 style="color:#f8fafc; margin:14px 0 8px 0; font-size:1.15rem;">$1</h2>');
+
+  // Bold & Italic
+  html = html.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/gim, '<em>$1</em>');
+
+  // Code inline
+  html = html.replace(/`([^`]+)`/gim, '<code style="background:#0f172a; padding:2px 5px; border-radius:4px; color:#38bdf8; font-size:0.8rem;">$1</code>');
+
+  // Bullet Lists (* or -)
+  html = html.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>)/gims, '<ul style="margin:6px 0 8px 18px; padding:0;">$1</ul>');
+
+  // Tablas Markdown simples
+  const lines = html.split('\n');
+  let inTable = false;
+  let tableHtml = '';
+  let processedLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('|') && line.endsWith('|')) {
+      if (line.includes('---')) {
+        continue; // Separador de tabla
+      }
+      const cells = line.slice(1, -1).split('|').map(c => c.trim());
+      if (!inTable) {
+        inTable = true;
+        tableHtml = '<table style="width:100%; border-collapse:collapse; margin:8px 0; font-size:0.78rem;">';
+        tableHtml += '<thead><tr style="background:#0f172a; color:#94a3b8;">' + cells.map(c => `<th style="border:1px solid #334155; padding:5px 8px;">${c}</th>`).join('') + '</tr></thead><tbody>';
+      } else {
+        tableHtml += '<tr>' + cells.map(c => `<td style="border:1px solid #334155; padding:5px 8px;">${c}</td>`).join('') + '</tr>';
+      }
+    } else {
+      if (inTable) {
+        tableHtml += '</tbody></table>';
+        processedLines.push(tableHtml);
+        inTable = false;
+        tableHtml = '';
+      }
+      processedLines.push(line);
+    }
+  }
+  if (inTable) {
+    tableHtml += '</tbody></table>';
+    processedLines.push(tableHtml);
+  }
+
+  html = processedLines.join('\n');
+
+  // Párrafos y Saltos de Línea
+  html = html.replace(/\n\n+/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>');
+  if (!html.startsWith('<h') && !html.startsWith('<table') && !html.startsWith('<ul')) {
+    html = `<p>${html}</p>`;
+  }
+
+  return html;
+}
+
+function exportToMicrosoftCopilot() {
+  const liveContext = getLogisticsLiveContext();
+  const copilotPrompt = `Eres el Asistente Experto en Optimización de Transporte y Logística del Centro de Distribución.
+A continuación te comparto los datos consolidados y auditados del dashboard operativo de transporte para que realices un análisis estratégico de eficiencia y costos:
+
+${liveContext}
+
+Por favor realiza:
+1. Un resumen ejecutivo del estado del transporte (desempeño frente a las metas de >70% de ocupación y < S/ 15 de costo por pasajero).
+2. Identificación de las rutas críticas con sobrecosto por subutilización (< 50% de ocupación) y cuantificación del ahorro proyectado si se migran a vans/sprinter (capacidad 15-20 pasajeros).
+3. Recomendaciones prioritarias de toma de decisiones para la jefatura y gerencia de logística.`;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(copilotPrompt).then(() => {
+      if (window.ClipboardUtil) {
+        ClipboardUtil.showToast('📋 ¡Reporte copiado! Pégalo en Microsoft Copilot (Teams o Edge) con tu usuario corporativo.', 'success');
+      } else {
+        alert('¡Reporte copiado al portapapeles! Pégalo en Microsoft Copilot.');
+      }
+      appendSystemChatMessage('📋 <b>Contexto copiado para Microsoft Copilot.</b><br>Puedes abrir Microsoft Teams o <a href="https://copilot.microsoft.com" target="_blank" style="color:#38bdf8;">copilot.microsoft.com</a> con tu usuario corporativo y pegar este reporte directamente.');
+    }).catch(err => {
+      prompt('Copia manualmente este texto para Microsoft Copilot:', copilotPrompt);
+    });
+  } else {
+    prompt('Copia manualmente este texto para Microsoft Copilot:', copilotPrompt);
+  }
+}
+
+// =========================================================
+// MÓDULO: Mapa de Calor Demográfico de Colaboradores
+// =========================================================
+
+function initHeatMapIfNeeded() {
+  if (AppState.heatInitialized && AppState.heatMapInstance) return;
+
+  const container = document.getElementById('mapaCalorEmpleados');
+  if (!container || typeof L === 'undefined') return;
+
+  // 1. Inicializar mapa Leaflet centrado en Lima Metropolitana y CD Huachipa
+  const map = L.map('mapaCalorEmpleados', {
+    center: [-12.015, -76.945],
+    zoom: 11,
+    minZoom: 9,
+    maxZoom: 18,
+    wheelDebounceTime: 60,
+    wheelPxPerZoomLevel: 100
+  });
+
+  // 2. Capa base oscura en alta definición (Mapbox Dark v11 con fallback a CartoDB Dark Matter gratuito)
+  const mbToken = getMapboxToken();
+  if (mbToken) {
+    L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${encodeURIComponent(mbToken)}`, {
+      attribution: '© Mapbox © OpenStreetMap',
+      tileSize: 512,
+      zoomOffset: -1,
+      maxZoom: 19
+    }).addTo(map);
+  } else {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap contributors © CARTO',
+      maxZoom: 19
+    }).addTo(map);
+  }
+
+  // 3. Marcador permanente del Centro de Distribución (Hub Central Logístico)
+  const cdLat = -11.997563;
+  const cdLng = -76.900062;
+  const cdIcon = L.divIcon({
+    className: 'cd-huachipa-marker-pin',
+    html: `<div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid #60a5fa; box-shadow: 0 0 16px rgba(59, 130, 246, 0.8), 0 4px 8px rgba(0,0,0,0.6); font-size: 15px;"><i class="fa-solid fa-warehouse"></i></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17]
+  });
+
+  L.marker([cdLat, cdLng], { icon: cdIcon, zIndexOffset: 2000 })
+    .addTo(map)
+    .bindPopup(`
+      <div style="font-family: inherit; font-size: 0.85rem; color: #0f172a; padding: 4px;">
+        <strong style="color: #1e40af; font-size: 0.94rem; display: flex; align-items: center; gap: 6px;">
+          <i class="fa-solid fa-warehouse"></i> Centro de Distribución
+        </strong>
+        <div style="color: #64748b; font-size: 0.78rem; margin-top: 2px;">Base Central de Operaciones Logísticas</div>
+        <div style="color: #334155; font-size: 0.74rem; margin-top: 4px;">GPS: -11.997563, -76.900062</div>
+      </div>
+    `);
+
+  // 4. Capas agrupadas para marcadores individuales y paraderos
+  AppState.heatMarkersLayer = L.layerGroup().addTo(map);
+  AppState.heatParaderosLayer = L.layerGroup().addTo(map);
+
+  AppState.heatMapInstance = map;
+  AppState.heatInitialized = true;
+}
+
+function popularDropdownDistritosCalor() {
+  const sel = document.getElementById('selectDistritoCalor');
+  if (!sel || !AppState.rawEmployees || AppState.rawEmployees.length === 0) return;
+
+  const currentVal = sel.value;
+  const distSet = new Set();
+  AppState.rawEmployees.forEach(e => {
+    const d = (e.distrito || '').trim();
+    if (d) {
+      const normD = d.charAt(0).toUpperCase() + d.slice(1).toLowerCase();
+      distSet.add(normD);
+    }
+  });
+
+  const sorted = Array.from(distSet).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  let opts = '<option value="TODOS">Todos los Distritos</option>';
+  sorted.forEach(d => {
+    opts += `<option value="${d}">${d}</option>`;
+  });
+  sel.innerHTML = opts;
+  if (sorted.includes(currentVal)) {
+    sel.value = currentVal;
+  } else {
+    sel.value = 'TODOS';
+  }
+}
+
+function renderMapaCalorEmpleados() {
+  if (!AppState.rawEmployees || AppState.rawEmployees.length === 0) return;
+
+  // Asegurar que el mapa Leaflet esté instanciado
+  initHeatMapIfNeeded();
+  if (!AppState.heatMapInstance) return;
+
+  // 1. Obtener filtros activos del toolbar de calor
+  const activeAreaBtn = document.querySelector('#chipAreaCalor .chip.active');
+  const areaFiltro = activeAreaBtn ? activeAreaBtn.dataset.value : 'TODOS';
+
+  const activeTipoBtn = document.querySelector('#chipTipoCalor .chip.active');
+  const tipoFiltro = activeTipoBtn ? activeTipoBtn.dataset.value : 'TODOS';
+
+  const selectDistEl = document.getElementById('selectDistritoCalor');
+  const distritoFiltro = selectDistEl ? selectDistEl.value : 'TODOS';
+
+  // 2. Filtrar empleados según selección
+  let emps = AppState.rawEmployees || [];
+  if (areaFiltro !== 'TODOS') {
+    emps = emps.filter(e => e.area === areaFiltro);
+  }
+  if (tipoFiltro !== 'TODOS') {
+    emps = emps.filter(e => e.tipo === tipoFiltro);
+  }
+  if (distritoFiltro !== 'TODOS') {
+    emps = emps.filter(e => e.distrito && e.distrito.toUpperCase() === distritoFiltro.toUpperCase());
+  }
+
+  // Empleados con coordenadas GPS válidas
+  const empsConCoord = emps.filter(e => e.hasCoords && e.lat !== null && e.lng !== null);
+
+  // 3. Actualizar Indicadores Ejecutivos (KPIs Superiores)
+  const kpiTotalEl = document.getElementById('kpiCalorTotalEmps');
+  const kpiTotalSubEl = document.getElementById('kpiCalorTotalEmpsSub');
+  if (kpiTotalEl) {
+    kpiTotalEl.innerHTML = `${empsConCoord.length.toLocaleString()} <span style="font-size: 0.65em; color: #94a3b8; font-weight: 500;">/ ${emps.length.toLocaleString()}</span>`;
+  }
+  if (kpiTotalSubEl) {
+    const pctGeo = emps.length > 0 ? ((empsConCoord.length / emps.length) * 100).toFixed(1) : 0;
+    kpiTotalSubEl.innerText = `${pctGeo}% con GPS (${emps.length - empsConCoord.length} sin coords)`;
+  }
+
+  // Agrupación y conteo por distritos
+  const distCountMap = new Map();
+  emps.forEach(e => {
+    const d = (e.distrito || 'Sin Distrito').trim();
+    if (!d) return;
+    const normD = d.charAt(0).toUpperCase() + d.slice(1).toLowerCase();
+    distCountMap.set(normD, (distCountMap.get(normD) || 0) + 1);
+  });
+
+  const distritosSorted = Array.from(distCountMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // KPI Distrito Núcleo (Top 1)
+  const kpiTopDistEl = document.getElementById('kpiCalorTopDistrito');
+  const kpiTopDistSubEl = document.getElementById('kpiCalorTopDistritoSub');
+  if (distritosSorted.length > 0) {
+    const top = distritosSorted[0];
+    const pctTop = emps.length > 0 ? ((top.count / emps.length) * 100).toFixed(1) : 0;
+    if (kpiTopDistEl) kpiTopDistEl.innerText = top.name;
+    if (kpiTopDistSubEl) kpiTopDistSubEl.innerText = `${top.count} colaboradores (${pctTop}%)`;
+  } else {
+    if (kpiTopDistEl) kpiTopDistEl.innerText = '-';
+    if (kpiTopDistSubEl) kpiTopDistSubEl.innerText = 'Mayor densidad residencial';
+  }
+
+  // KPI Distancia Media al CD
+  const kpiDistMediaEl = document.getElementById('kpiCalorDistMedia');
+  const empsConDist = emps.filter(e => e.distCd && e.distCd > 0);
+  if (empsConDist.length > 0) {
+    const sumDist = empsConDist.reduce((acc, e) => acc + e.distCd, 0);
+    const avgDist = sumDist / empsConDist.length;
+    if (kpiDistMediaEl) kpiDistMediaEl.innerText = `${avgDist.toFixed(1)} km`;
+  } else {
+    if (kpiDistMediaEl) kpiDistMediaEl.innerText = '-';
+  }
+
+  // KPI Desatendidos / Oportunidad de Cobertura (> 2 km de un paradero)
+  const kpiLejosEl = document.getElementById('kpiCalorLejosParadero');
+  const kpiLejosSubEl = document.getElementById('kpiCalorLejosParaderoSub');
+  const empsLejos = emps.filter(e => (e.distParadero && e.distParadero > 2) || (e.clasifParadero && (e.clasifParadero.includes('Moderada') || e.clasifParadero.includes('Lejos'))));
+  if (kpiLejosEl) {
+    kpiLejosEl.innerText = empsLejos.length.toLocaleString();
+  }
+  if (kpiLejosSubEl) {
+    const pctLejos = emps.length > 0 ? ((empsLejos.length / emps.length) * 100).toFixed(1) : 0;
+    kpiLejosSubEl.innerText = `${pctLejos}% a > 2 km de paraderos`;
+  }
+
+  // 4. Actualizar Capa de Calor Térmico (Acelerado por Hardware con Canvas 2D)
+  const heatPoints = empsConCoord.map(e => [e.lat, e.lng, 0.75]);
+  const sliderEl = document.getElementById('sliderHeatRadius');
+  const radius = sliderEl ? parseInt(sliderEl.value, 10) : 25;
+
+  if (!AppState.heatLayer) {
+    if (typeof L.heatLayer === 'function') {
+      AppState.heatLayer = L.heatLayer(heatPoints, {
+        radius: radius,
+        blur: 16,
+        maxZoom: 16,
+        max: 0.85,
+        minOpacity: 0.35,
+        gradient: {
+          0.15: '#2563eb', // Azul
+          0.35: '#06b6d4', // Cian
+          0.55: '#10b981', // Verde
+          0.75: '#f59e0b', // Amarillo / Naranja
+          1.00: '#ef4444'  // Rojo intenso
+        }
+      });
+      const toggleHeat = document.getElementById('toggleLayerHeat');
+      if (!toggleHeat || toggleHeat.checked) {
+        AppState.heatLayer.addTo(AppState.heatMapInstance);
+      }
+    }
+  } else {
+    AppState.heatLayer.setLatLngs(heatPoints);
+    AppState.heatLayer.setOptions({ radius: radius });
+    const toggleHeat = document.getElementById('toggleLayerHeat');
+    if (toggleHeat && !toggleHeat.checked) {
+      if (AppState.heatMapInstance.hasLayer(AppState.heatLayer)) {
+        AppState.heatMapInstance.removeLayer(AppState.heatLayer);
+      }
+    } else {
+      if (!AppState.heatMapInstance.hasLayer(AppState.heatLayer)) {
+        AppState.heatMapInstance.addLayer(AppState.heatLayer);
+      }
+    }
+  }
+
+  // 5. Actualizar Capa de Marcadores Individuales de Colaboradores
+  if (AppState.heatMarkersLayer) {
+    AppState.heatMarkersLayer.clearLayers();
+    const togglePoints = document.getElementById('toggleLayerPoints');
+    if (togglePoints && togglePoints.checked) {
+      empsConCoord.forEach(emp => {
+        const areaColor = emp.area === 'SECOS' ? '#3b82f6' : (emp.area === 'PPA' ? '#10b981' : '#f59e0b');
+        const marker = L.circleMarker([emp.lat, emp.lng], {
+          radius: 5,
+          color: '#38bdf8',
+          fillColor: areaColor,
+          fillOpacity: 0.8,
+          weight: 1.5
+        });
+
+        const popupHtml = `
+          <div style="font-family: inherit; font-size: 0.82rem; line-height: 1.45; color: #0f172a; min-width: 210px; max-width: 280px;">
+            <div style="font-weight: 700; color: #1e3a8a; font-size: 0.9rem; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px;">
+              ${escapeHtml(emp.nombre)}
+            </div>
+            <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+              <span style="background: #2563eb; color: #fff; padding: 1px 6px; border-radius: 6px; font-size: 0.72rem; font-weight: 600;">${escapeHtml(emp.area)}</span>
+              <span style="background: #0f172a; color: #94a3b8; padding: 1px 6px; border-radius: 6px; font-size: 0.72rem;">${escapeHtml(emp.tipo)}</span>
+              <span style="background: #e0f2fe; color: #0369a1; padding: 1px 6px; border-radius: 6px; font-size: 0.72rem;">DNI: ${escapeHtml(emp.dni || emp.rawDni || '-')}</span>
+            </div>
+            <div style="font-size: 0.8rem; color: #334155; margin-bottom: 2px;">
+              <b>📍 Distrito:</b> ${escapeHtml(emp.distrito || '-')}${emp.provincia ? ', ' + escapeHtml(emp.provincia) : ''}
+            </div>
+            ${emp.direccion ? `<div style="font-size: 0.76rem; color: #64748b; margin-bottom: 4px;"><b>🏠 Dirección:</b> ${escapeHtml(emp.direccion)}</div>` : ''}
+            <div style="font-size: 0.78rem; color: #334155;">
+              <b>🚌 Paradero:</b> ${escapeHtml(emp.paradero || '-')} <span style="color: #64748b;">(${escapeHtml(emp.ruta || 'Sin Ruta')})</span>
+            </div>
+            <div style="font-size: 0.78rem; color: #334155; margin-top: 2px;">
+              <b>📏 Dist. a CD:</b> ${emp.distCd ? emp.distCd.toFixed(1) + ' km' : '-'} | 
+              <b>A Paradero:</b> ${emp.distParadero ? emp.distParadero.toFixed(2) + ' km' : '-'}
+            </div>
+          </div>
+        `;
+        marker.bindPopup(popupHtml);
+        AppState.heatMarkersLayer.addLayer(marker);
+      });
+    }
+  }
+
+  // 6. Actualizar Capa de Paraderos Oficiales de Movilidad
+  if (AppState.heatParaderosLayer) {
+    AppState.heatParaderosLayer.clearLayers();
+    const toggleParaderos = document.getElementById('toggleLayerParaderos');
+    if (toggleParaderos && toggleParaderos.checked && AppState.paraderosData && AppState.paraderosData.length > 0) {
+      AppState.paraderosData.forEach(p => {
+        const lat = parseFloat(p.lat);
+        const lng = parseFloat(p.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const busPinIcon = L.divIcon({
+            className: 'paradero-bus-pin',
+            html: `<div style="background: #059669; color: #ffffff; width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 1.5px solid #a7f3d0; box-shadow: 0 2px 6px rgba(0,0,0,0.6);"><i class="fa-solid fa-bus"></i></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+          });
+          const pMarker = L.marker([lat, lng], {
+            icon: busPinIcon,
+            zIndexOffset: 1200
+          }).bindTooltip(`<b>🚌 ${p.nombre}</b><br><small style="color: #94a3b8;">Ruta: ${p.ruta}</small>`, {
+            direction: 'top',
+            offset: [0, -10],
+            className: 'etiqueta-paradero'
+          });
+          AppState.heatParaderosLayer.addLayer(pMarker);
+        }
+      });
+    }
+  }
+
+  // 7. Generar Panel Lateral de Concentración por Distritos
+  const listaDistEl = document.getElementById('listaDistritosCalor');
+  const badgeTotalDist = document.getElementById('badgeTotalDistritosCount');
+  if (badgeTotalDist) {
+    badgeTotalDist.innerText = `${distritosSorted.length} Distritos`;
+  }
+
+  if (listaDistEl) {
+    if (distritosSorted.length === 0) {
+      listaDistEl.innerHTML = `
+        <div style="text-align: center; color: #94a3b8; padding: 25px 10px;">
+          <i class="fa-solid fa-circle-exclamation" style="color: #f59e0b; font-size: 1.4rem; margin-bottom: 8px;"></i>
+          <p style="margin: 0; font-size: 0.84rem;">No se encontraron distritos con los filtros seleccionados.</p>
+        </div>
+      `;
+    } else {
+      const maxCount = distritosSorted[0].count;
+      let html = '';
+      distritosSorted.forEach((d, idx) => {
+        const pct = emps.length > 0 ? ((d.count / emps.length) * 100).toFixed(1) : 0;
+        const barWidth = Math.max(8, Math.round((d.count / maxCount) * 100));
+
+        // Distancia promedio al CD para este distrito
+        const empsDist = emps.filter(e => (e.distrito || '').toUpperCase() === d.name.toUpperCase() && e.distCd > 0);
+        const distProm = empsDist.length > 0 ? (empsDist.reduce((a, b) => a + b.distCd, 0) / empsDist.length).toFixed(1) + ' km' : '-';
+
+        html += `
+          <div class="distrito-ranking-item" onclick="enfocarDistritoEnMapa('${d.name.replace(/'/g, "\\'")}')" title="Clic para enfocar ${d.name} en el mapa">
+            <div class="distrito-item-header">
+              <span><b>#${idx + 1}</b> ${d.name}</span>
+              <span class="distrito-item-count">${d.count} <small style="color: #94a3b8; font-weight: normal;">(${pct}%)</small></span>
+            </div>
+            <div class="distrito-item-bar-bg">
+              <div class="distrito-item-bar-fill" style="width: ${barWidth}%;"></div>
+            </div>
+            <div class="distrito-item-footer">
+              <span><i class="fa-solid fa-compass"></i> CD: ~${distProm}</span>
+              <span style="color: #38bdf8;"><i class="fa-solid fa-magnifying-glass-location"></i> Enfocar</span>
+            </div>
+          </div>
+        `;
+      });
+      listaDistEl.innerHTML = html;
+    }
+  }
+}
+
+function enfocarDistritoEnMapa(distritoNombre) {
+  if (!AppState.heatMapInstance || !distritoNombre) return;
+
+  const emps = (AppState.rawEmployees || []).filter(e => 
+    e.distrito && e.distrito.toUpperCase() === distritoNombre.toUpperCase() && e.hasCoords
+  );
+
+  if (emps.length > 0) {
+    let sumLat = 0, sumLng = 0;
+    emps.forEach(e => {
+      sumLat += e.lat;
+      sumLng += e.lng;
+    });
+    const avgLat = sumLat / emps.length;
+    const avgLng = sumLng / emps.length;
+
+    // Sincronizar select si no coincide
+    const selDist = document.getElementById('selectDistritoCalor');
+    if (selDist && selDist.value !== distritoNombre) {
+      selDist.value = distritoNombre;
+      renderMapaCalorEmpleados();
+    }
+
+    AppState.heatMapInstance.flyTo([avgLat, avgLng], 14, { duration: 1.2 });
+  } else {
+    if (window.ClipboardUtil) ClipboardUtil.showToast(`No hay colaboradores con coordenadas para ${distritoNombre}`, 'info');
+  }
+}
+
+// Exponer función para eventos inline en el DOM
+window.enfocarDistritoEnMapa = enfocarDistritoEnMapa;
+
+

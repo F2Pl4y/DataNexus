@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard de Movilidad</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚌</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Leaflet CSS para Mapeo de Rutas -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Estilos Globales de DataNexus (opcional, para botones y modal drive) -->
+  <link rel="stylesheet" href="../../css/styles.css?v=3.7">
+  
+  <!-- Estilos Específicos de este Dashboard -->
+  <link rel="stylesheet" href="css/movilidad.css?v=4.3">
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- Header Minimalista -->
+  <header class="movilidad-header">
+    <div class="logo-area">
+      <i class="fa-solid fa-van-shuttle text-primary"></i>
+      <h1>Dashboard Servicio Movilidad</h1>
+    </div>
+    <div class="auth-area">
+      <!-- Botón Volver a Inicio DataNexus -->
+      <a href="../../index.html" class="btn btn-outline-primary btn-sm" title="Volver al menú principal">
+        <i class="fa-solid fa-arrow-left"></i> Inicio DataNexus
+      </a>
+
+      <button id="btnGoogleLogin" class="btn btn-google">
+        <i class="fa-brands fa-google"></i> Acceder con Google
+      </button>
+      <div id="userInfo" class="user-profile hidden">
+        <span id="userEmail"></span>
+        <button id="btnGoogleLogout" class="btn btn-outline-danger btn-sm" title="Cerrar sesión"><i class="fa-solid fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-container" style="max-width: 98% !important; width: 100% !important;">
+    <!-- Panel de Conexión -->
+    <section class="connection-panel">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 0 0 1rem 0;">
+        <h2 style="display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-link" style="color: #3b82f6;"></i> Conectar a Google Sheet 
+          <i class="fa-solid fa-circle-info text-info custom-tooltip-icon" data-tooltip="Elegir el archivo ServicioMovilidad"></i>
+        </h2>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span id="connectionStatus" class="badge badge-warning">Esperando URL</span>
+          <button id="toggleConnectionBtn" class="btn-icon" style="border: none; background: transparent; cursor: pointer;" title="Ocultar/Mostrar panel">
+            <i class="fa-solid fa-chevron-up"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body" id="connectionCardBody" style="transition: all 0.3s ease; padding: 0;">
+        <div class="input-with-action" style="display: flex; gap: 8px;">
+          <input type="text" id="sheetUrlInput" class="form-control" placeholder="Pega el enlace del Excel..." style="flex-grow: 1;">
+          <button id="btnBrowseDrive" class="btn btn-secondary"><i class="fa-solid fa-folder-open"></i> Explorar Drive</button>
+          <button id="btnFetchData" class="btn btn-primary"><i class="fa-solid fa-cloud-arrow-down"></i> Cargar Datos</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal del Explorador de Archivos (Oculto por defecto) -->
+    <div id="drive-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3><i class="fa-solid fa-folder-open text-primary"></i> Tus archivos recientes</h3>
+          <button id="close-modal-btn" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="text" id="drive-search-input" class="form-control" style="margin-bottom: 12px;" placeholder="🔍 Buscar archivo por nombre..." oninput="filterDriveList(this.value)">
+          <div id="drive-loading" class="hidden text-center"><i class="fa-solid fa-spinner fa-spin"></i> Cargando archivos...</div>
+          <ul id="drive-file-list" class="file-list"></ul>
+          <div id="drive-empty" class="hidden text-muted text-center mt-3">No se encontraron hojas de cálculo recientes.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Interactivo de Mapeo de Rutas (Leaflet + Mapbox + GPS) -->
+    <div id="mapa-modal" class="modal-overlay hidden">
+      <div class="modal-content modal-mapa-container">
+        
+        <!-- Header del Modal -->
+        <div class="modal-header modal-mapa-header">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <h3 style="margin: 0; font-size: 1.15rem; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-map-location-dot" style="color: #3b82f6;"></i> Mapeo Logístico de Rutas y Paraderos
+            </h3>
+            <span id="mapaDataSourceBadge" class="badge badge-info" style="font-size: 0.75rem;">
+              <i class="fa-solid fa-database"></i> Verificando origen...
+            </span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <!-- Selector de Sentido de Operación: Ingreso al CD vs Salida del CD -->
+            <div class="sentido-selector-container">
+              <span class="sentido-label"><i class="fa-solid fa-arrow-right-arrow-left"></i> Sentido:</span>
+              <div id="chipSentidoRuta" class="chip-group-sentido">
+                <button type="button" class="chip-sentido-btn active" data-sentido="INGRESO" title="Turno Mañana: Paraderos hacia el CD Huachipa (Llegada 06:30 AM)">
+                  <i class="fa-solid fa-right-to-bracket"></i> Ingreso al CD
+                </button>
+                <button type="button" class="chip-sentido-btn" data-sentido="SALIDA" title="Turno Tarde: Salida del CD Huachipa hacia Paraderos (Salida 04:30 PM)">
+                  <i class="fa-solid fa-right-from-bracket"></i> Salida del CD
+                </button>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <label style="font-size: 0.8rem; color: #94a3b8; margin: 0;">Filtrar:</label>
+              <select id="selectFiltroRutaMapa" class="form-control form-control-sm" style="padding: 4px 10px; font-size: 0.82rem; width: auto; min-width: 140px;">
+                <option value="TODAS">Todas las Rutas</option>
+              </select>
+            </div>
+
+            <button id="btnResetMapView" class="btn btn-secondary btn-sm" style="border-radius: 8px; padding: 5px 12px;" title="Centrar vista de rutas">
+              <i class="fa-solid fa-crosshairs"></i> Centrar
+            </button>
+
+            <button id="close-mapa-modal-btn" class="btn-close" title="Cerrar modal">&times;</button>
+          </div>
+        </div>
+
+        <!-- Cuerpo del Mapa + Panel Flotante -->
+        <div class="modal-body modal-mapa-body">
+          <!-- Contenedor Leaflet -->
+          <div id="mapaRutas"></div>
+
+          <!-- Panel Flotante de Indicadores Logísticos (Dark Claymorphism) -->
+          <div id="panelIndicadoresRutas" class="panel-indicadores-rutas">
+            <div class="panel-indicadores-header">
+              <h4><i class="fa-solid fa-route" style="color: #3b82f6;"></i> Indicadores de Ruta</h4>
+              <button id="btnTogglePanelRutas" class="btn-icon-panel" title="Minimizar panel"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            <div class="panel-indicadores-body" id="listaRutasCards">
+              <p style="color: #94a3b8; font-size: 0.85rem; text-align: center; padding: 20px 0;">
+                <i class="fa-solid fa-spinner fa-spin"></i> Trazando recorridos y calculando GPS...
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Modal Directorio de Colaboradores Registrados -->
+    <div id="modal-empleados" class="modal-overlay hidden">
+      <div class="modal-content modal-large-container">
+        <div class="modal-header">
+          <h3>
+            <i class="fa-solid fa-users text-primary"></i> 
+            Directorio de Colaboradores en BD 
+            <span id="modalEmpCountBadge" class="badge badge-info" style="font-size: 0.75rem;">0</span>
+          </h3>
+          <button id="close-modal-empleados" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Barra de Búsqueda y Filtros Rápidos -->
+          <div style="display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; flex-shrink: 0;">
+            <input type="text" id="inputBuscarEmpleado" class="form-control" placeholder="🔍 Buscar por DNI, Nombre, Área, Distrito o Ruta..." style="flex: 1; min-width: 250px;">
+            <select id="filtroModalEmpTipo" class="form-control form-control-sm" style="width: auto; min-width: 140px;">
+              <option value="TODOS">Todos los Tipos</option>
+              <option value="STAFF">Solo Staff</option>
+              <option value="OPERARIO">Solo Operarios</option>
+            </select>
+            <select id="filtroModalEmpArea" class="form-control form-control-sm" style="width: auto; min-width: 140px;">
+              <option value="TODOS">Todas las Áreas</option>
+              <option value="SECOS">SECOS</option>
+              <option value="PPA">PPA</option>
+              <option value="FRESCOS">FRESCOS</option>
+            </select>
+          </div>
+
+          <!-- Contenedor con Scroll de la Tabla -->
+          <div class="table-responsive modal-table-scroll" style="flex: 1; overflow-y: auto; overflow-x: auto; border: 1px solid #334155; border-radius: 14px;">
+            <table class="table" id="tablaModalEmpleados" style="margin-bottom: 0; width: 100%; min-width: 860px;">
+              <thead style="position: sticky; top: 0; background: #0f172a; z-index: 10;">
+                <tr>
+                  <th style="min-width: 110px;">DNI</th>
+                  <th style="min-width: 250px;">Colaborador / Nombre</th>
+                  <th style="min-width: 100px; text-align: center;">Área</th>
+                  <th style="min-width: 130px; text-align: center;">Clasificación</th>
+                  <th style="min-width: 140px;">Distrito</th>
+                  <th style="min-width: 130px;">Ruta Asignada</th>
+                  <th style="min-width: 220px;">Paradero</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyModalEmpleados">
+                <!-- Se puebla dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+          <div id="footerModalEmpleados" style="padding-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #94a3b8; flex-shrink: 0;">
+            <span id="labelTotalMostradosEmp">Mostrando 0 colaboradores</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Pasajeros No Contemplados en BD / Excluidos -->
+    <div id="modal-no-contemplados" class="modal-overlay hidden">
+      <div class="modal-content modal-large-container">
+        <div class="modal-header">
+          <h3>
+            <i class="fa-solid fa-user-slash" style="color: #f59e0b;"></i> 
+            Pasajeros No Contemplados en Bases Maestras
+            <span id="modalUnmappedCountBadge" class="badge badge-warning" style="font-size: 0.75rem;">0</span>
+          </h3>
+          <button id="close-modal-no-contemplados" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          
+          <!-- Banner Informativo de Diagnóstico de KPIs -->
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 14px; padding: 12px 18px; margin-bottom: 14px; font-size: 0.86rem; color: #cbd5e1; line-height: 1.5; flex-shrink: 0;">
+            <strong style="color: #fbbf24;"><i class="fa-solid fa-circle-info"></i> Diagnóstico de Impacto en KPIs:</strong>
+            <p style="margin: 4px 0 0 0;">
+              Estos colaboradores registraron viajes en la hoja <b>REGISTRO_DIARIO</b>, pero su DNI <b>no existe en las bases maestras de SECOS, FRESCOS ni PPA</b>.
+            </p>
+            <ul style="margin: 6px 0 0 18px; padding: 0;">
+              <li><b>Con filtros en "TODOS":</b> Sí se suman al conteo general de pasajeros porque abordaron el servicio.</li>
+              <li><b>Al filtrar por Área (Secos/PPA/Frescos) o por Tipo (Staff/Operario):</b> <u>NO se pueden contemplar</u> ya que al no existir en la base de datos se desconoce su área y si son staff u operarios, quedando excluidos de los KPIs prorrateados.</li>
+            </ul>
+          </div>
+
+          <!-- Acciones y Búsqueda -->
+          <div style="display: flex; gap: 10px; margin-bottom: 14px; justify-content: space-between; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
+            <input type="text" id="inputBuscarNoContemplado" class="form-control" placeholder="🔍 Buscar por DNI o Ruta..." style="flex: 1; min-width: 250px;">
+            <button id="btnCopiarDnisNoMapeados" class="btn btn-secondary btn-sm" style="white-space: nowrap; height: 38px; border-radius: 10px;">
+              <i class="fa-regular fa-copy"></i> Copiar lista de DNIs
+            </button>
+          </div>
+
+          <!-- Tabla de Pasajeros Sin BD -->
+          <div class="table-responsive modal-table-scroll" style="flex: 1; overflow-y: auto; overflow-x: auto; border: 1px solid #334155; border-radius: 14px;">
+            <table class="table" id="tablaModalNoContemplados" style="margin-bottom: 0; width: 100%; min-width: 800px;">
+              <thead style="position: sticky; top: 0; background: #0f172a; z-index: 10;">
+                <tr>
+                  <th style="min-width: 130px;">DNI Registrado</th>
+                  <th style="min-width: 140px; text-align: center;">N° Viajes Realizados</th>
+                  <th style="min-width: 180px;">Rutas Utilizadas</th>
+                  <th style="min-width: 140px;">Última Fecha</th>
+                  <th style="min-width: 290px;">Diagnóstico</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyModalNoContemplados">
+                <!-- Se puebla dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+          <div id="footerModalNoContemplados" style="padding-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #94a3b8; flex-shrink: 0;">
+            <span id="labelTotalMostradosUnmapped">Total: 0 pasajeros sin registro</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filtros del Dashboard (Sticky) -->
+    <div class="sticky-filters-wrapper hidden" id="dashboardFiltersWrapper" style="position: -webkit-sticky; position: sticky; top: 8px; z-index: 990;">
+      <div style="display: flex; justify-content: flex-end; margin-bottom: -15px; padding-right: 15px; position: relative; z-index: 101;">
+        <button id="toggleFiltersBtn" class="btn-toggle-filters" title="Ocultar/Mostrar filtros">
+          <i class="fa-solid fa-chevron-up"></i>
+        </button>
+      </div>
+      <section id="dashboardFilters" class="filters-panel" style="transition: all 0.3s ease; width: 100%;">
+      <!-- Controles de Filtro -->
+      <div class="filters-container">
+        
+        <div class="filters-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-end;">
+          <div class="filter-group">
+            <label>Área:</label>
+            <div class="chip-group" id="chipArea">
+              <button class="chip active" data-value="TODOS">TODOS</button>
+              <button class="chip" data-value="SECOS">SECOS</button>
+              <button class="chip" data-value="PPA">PPA</button>
+              <button class="chip" data-value="FRESCOS">FRESCOS</button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label>Tipo de Empleado:</label>
+            <div class="chip-group" id="chipTipo">
+              <button class="chip active" data-value="TODOS">TODOS</button>
+              <button class="chip" data-value="STAFF">STAFF</button>
+              <button class="chip" data-value="OPERARIO">OPERARIO</button>
+            </div>
+          </div>
+
+          <div class="filter-group" id="groupFiltroSinBD" style="transition: opacity 0.3s ease;">
+            <label style="display: flex; align-items: center; gap: 6px;">
+              <span>Pasajeros sin BD Maestra:</span>
+              <span id="badgeInfoSinBD" class="badge badge-warning" style="font-size: 0.72rem; padding: 2px 7px; border-radius: 8px;">102 sin BD</span>
+              <span id="labelSinBDHint" style="font-size: 0.75rem; color: #4ade80; font-weight: normal;">(Incluidos)</span>
+            </label>
+            <div class="chip-group" id="chipIncluirSinBD">
+              <button class="chip active" data-value="SI" title="Incluye en 'TODOS' a todos los abordajes reales (Auditados + 102 sin registrar)">
+                <i class="fa-solid fa-users"></i> Incluir en "TODOS"
+              </button>
+              <button class="chip" data-value="NO" title="Excluye a los 102 sin BD; calcula métricas únicamente con personal 100% verificado en BD maestras">
+                <i class="fa-solid fa-user-shield"></i> Excluir (Solo BD)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="filters-row" style="border-top: 1px solid #334155; padding-top: 1rem; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1.25rem;">
+          <div style="display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end;">
+            <!-- 1. Filtro de Semana de Operación -->
+            <div class="filter-group" style="flex-grow: 0; min-width: 220px;">
+              <label style="display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-calendar-week" style="color: #60a5fa;"></i>
+                <span>Semana de Operación:</span>
+              </label>
+              <select id="filtroSemana" class="form-control" style="font-weight: 600;">
+                <option value="TODAS">Todas las Semanas</option>
+              </select>
+            </div>
+
+            <!-- 2. Filtro por Día de la Semana -->
+            <div class="filter-group" style="flex-grow: 0; min-width: 170px;">
+              <label style="display: flex; align-items: center; gap: 6px;">
+                <i class="fa-regular fa-calendar" style="color: #38bdf8;"></i>
+                <span>Día de la Semana:</span>
+              </label>
+              <select id="filtroDia" class="form-control">
+                <option value="TODOS">Todos los Días</option>
+              </select>
+            </div>
+
+            <!-- 3. Filtro de Fecha Específica -->
+            <div class="filter-group" style="flex-grow: 0; min-width: 210px;">
+              <label style="display: flex; align-items: center; gap: 6px;">
+                <i class="fa-regular fa-calendar-check" style="color: #4ade80;"></i>
+                <span>Fecha Específica:</span>
+              </label>
+              <select id="filtroFecha" class="form-control">
+                <option value="TODAS">Todas las Fechas</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Botones de Acción: Empleados, No Contemplados y Mapeo GPS -->
+          <div class="filter-map-action" style="margin-left: auto; display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;">
+            <button id="btnOpenEmployeesModal" class="btn-filter-action" type="button" title="Ver lista de todos los colaboradores registrados en BD">
+              <i class="fa-solid fa-users"></i>
+              <span>Colaboradores</span>
+              <span id="badgeCountEmployees" class="badge-rutas-pill">0</span>
+            </button>
+
+            <button id="btnOpenUnmappedModal" class="btn-filter-action btn-filter-warning" type="button" title="Ver pasajeros en el registro diario que no figuran en BD o excluidos">
+              <i class="fa-solid fa-user-slash"></i>
+              <span>No Contemplados</span>
+              <span id="badgeCountUnmapped" class="badge-rutas-pill badge-warning-pill">0</span>
+            </button>
+
+            <button id="btnOpenMapModal" class="btn-mapa-rutas" type="button" title="Ver trazado de paraderos y navegación GPS">
+              <i class="fa-solid fa-map-location-dot"></i>
+              <span>Ver Mapa de Rutas</span>
+              <span id="badgeRutasMap" class="badge-rutas-pill">GPS</span>
+            </button>
+
+            <button id="btnHeaderAiAssistant" class="btn-filter-action btn-filter-ai" type="button" title="Abrir Asistente Logístico IA (100% Gratuito)">
+              <i class="fa-solid fa-robot"></i>
+              <span>Asistente IA</span>
+              <span class="badge-rutas-pill badge-ai-pill">Gratis</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      </section>
+    </div> <!-- End sticky-filters-wrapper -->
+
+    <!-- Contenedor de Métricas y Gráficos (Oculto hasta cargar datos) -->
+    <section id="dashboardContent" class="dashboard-content hidden">
+      
+      <!-- BARRA DE PESTAÑAS (NAVEGACIÓN TIPO HOJAS DE EXCEL) -->
+      <div class="nav-tabs-wrapper">
+        <div class="nav-tabs-bar">
+          <button id="btnTabOperacion" class="nav-tab-btn active" type="button">
+            <i class="fa-solid fa-chart-pie"></i>
+            <span>Operación & Demografía</span>
+          </button>
+          <button id="btnTabCostos" class="nav-tab-btn" type="button">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Análisis de Costos y Eficiencia</span>
+          </button>
+          <button id="btnTabMapaCalor" class="nav-tab-btn" type="button">
+            <i class="fa-solid fa-fire-flame-curved" style="color: #f97316;"></i>
+            <span>Mapa de Calor Demográfico</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- VISTA 1: OPERACIÓN Y DEMOGRAFÍA -->
+      <div id="viewOperacionDemografia" class="tab-view-pane active">
+        
+        <!-- NIVEL 1: KPIs Ejecutivos (El Qué y Cuánto) -->
+        <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title"><i class="fa-solid fa-money-bill-wave"></i> Costo del Día</div>
+          <div class="kpi-value" id="kpiCostoDia">S/ 0.00</div>
+          <div class="kpi-subtitle">Total invertido hoy</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title"><i class="fa-solid fa-users"></i> % Ocupación Día</div>
+          <div class="kpi-value" id="kpiOcupacionDia">0%</div>
+          <div class="kpi-subtitle">Capacidad utilizada</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title"><i class="fa-solid fa-user-check"></i> Total Empleados</div>
+          <div class="kpi-value" id="kpiTotalEmps">-</div>
+          <div class="kpi-subtitle">Personal analizado</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title"><i class="fa-solid fa-route"></i> Dist. Prom. a CD</div>
+          <div class="kpi-value" id="kpiDistPromCD">-</div>
+          <div class="kpi-subtitle">Kilómetros</div>
+        </div>
+      </div>
+
+      <!-- NIVEL 2: El Pulso de la Operación (Buses diarios) -->
+      <div class="clay-card mt-4" id="seccionDashboardBuses" style="display: none;">
+        <h3 class="table-title mb-3">📊 ESTADO DE OPERACIÓN DIARIA DE BUSES</h3>
+        <div class="dashboard-buses-grid">
+          <div>
+            <h4 class="mb-2"><i class="fa-regular fa-calendar-days"></i> RESUMEN DEL DÍA</h4>
+            <div class="table-responsive">
+              <table class="data-table" id="tableResumenDia">
+                <tbody>
+                  <tr><td>Total Buses del Día:</td><td id="rdBusesDia">-</td></tr>
+                  <tr><td>Total Pasajeros:</td><td id="rdPasajerosDia">-</td></tr>
+                  <tr><td>Costo Promedio/Pasajero:</td><td id="rdCostoPasajeroDia">-</td></tr>
+                  <tr><td>Capacidad Total:</td><td id="rdCapacidadDia">-</td></tr>
+                  <tr><td>Capacidad Utilizada:</td><td id="rdCapacidadUsadaDia">-</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h4 class="mb-2"><i class="fa-solid fa-calendar-week"></i> RESUMEN SEMANAL</h4>
+            <div class="table-responsive">
+              <table class="data-table" id="tableResumenSemana">
+                <tbody>
+                  <tr><td>Total Viajes Semana:</td><td id="rdViajesSem">-</td></tr>
+                  <tr><td>Total Pasajeros Semana:</td><td id="rdPasajerosSem">-</td></tr>
+                  <tr><td>Costo Total Semana:</td><td id="rdCostoSem">-</td></tr>
+                  <tr><td>% Ocupación Prom. Sem.:</td><td id="rdOcupacionSem">-</td></tr>
+                  <tr><td>Costo Prom./Pasaj. Sem.:</td><td id="rdCostoPasajeroSem">-</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="clay-card mt-4" id="seccionRegistroDiario" style="display: none;">
+        <h3 class="table-title">EFICIENCIA Y COSTO POR RUTA (DÍA ACTUAL)</h3>
+        <div class="table-responsive">
+          <table class="data-table" id="tableRegistroDiario">
+            <thead>
+              <tr>
+                <th>Ruta</th><th>Total Viajes</th><th>Capacidad Asignada</th><th>Total Pasajeros</th>
+                <th>% Ocupación</th><th>Estado Capacidad</th><th>Costo Total</th><th>Costo Prom./Pasajero</th>
+                <th>Costo/Viaje</th><th>Máx - Mín Pasajeros</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- NIVEL 3: Distribución Demográfica -->
+      <h3 class="section-title mt-4 mb-3"><i class="fa-solid fa-chart-pie"></i> DISTRIBUCIÓN DEMOGRÁFICA</h3>
+      <div class="charts-grid">
+        <div class="chart-container clay-card">
+          <div style="border-bottom: 1px solid #334155; padding-bottom: 0.85rem; margin-bottom: 1.25rem;">
+            <h3 style="border-bottom: none; margin-bottom: 0.35rem; padding-bottom: 0;"><i class="fa-solid fa-building-circle-check"></i> Clasificación: Distancia al CD</h3>
+            <span class="kpi-subtitle" style="font-size: 0.78rem; color: #94a3b8; display: block;">
+              <i class="fa-solid fa-ruler"></i> Rangos: <b>Muy Cerca</b> (≤ 5 km) | <b>Cerca</b> (5 - 10 km) | <b>Moderada</b> (10 - 20 km) | <b>Lejos</b> (> 20 km)
+            </span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chartDistCD"></canvas>
+          </div>
+        </div>
+        <div class="chart-container clay-card">
+          <div style="border-bottom: 1px solid #334155; padding-bottom: 0.85rem; margin-bottom: 1.25rem;">
+            <h3 style="border-bottom: none; margin-bottom: 0.35rem; padding-bottom: 0;"><i class="fa-solid fa-bus"></i> Clasificación: Distancia a Paraderos</h3>
+            <span class="kpi-subtitle" style="font-size: 0.78rem; color: #94a3b8; display: block;">
+              <i class="fa-solid fa-ruler"></i> Rangos: <b>Muy Cerca</b> (≤ 1 km) | <b>Cerca</b> (1 - 3 km) | <b>Moderada</b> (3 - 5 km) | <b>Lejos</b> (> 5 km)
+            </span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chartDistParadero"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid mt-4">
+        <div class="chart-container clay-card" style="grid-column: span 2;">
+          <h3><i class="fa-solid fa-map-location-dot"></i> Top Distritos por Volumen de Empleados</h3>
+          <div class="chart-wrapper">
+            <canvas id="chartTopDistritos"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="tables-grid mt-4">
+        <div class="clay-card">
+          <h3 class="table-title">RUTAS DISPONIBLES</h3>
+          <div class="table-responsive table-vertical-scroll" style="max-height: 350px; overflow-y: auto;">
+            <table class="data-table" id="tableRutasDisponibles">
+              <thead style="position: -webkit-sticky; position: sticky; top: 0; background: #2563eb; z-index: 5;"><tr><th>Ruta</th><th>Empleados</th><th>%</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="clay-card">
+          <h3 class="table-title">TOP 10 PARADEROS MÁS CERCANOS</h3>
+          <div class="table-responsive table-vertical-scroll" style="max-height: 350px; overflow-y: auto;">
+            <table class="data-table" id="tableTopParaderos">
+              <thead style="position: -webkit-sticky; position: sticky; top: 0; background: #2563eb; z-index: 5;"><tr><th>#</th><th>Paradero</th><th>Empleados</th><th>Ruta</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- NIVEL 4: Detalles Operativos (Anexo) -->
+      <div class="clay-card mt-4">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f81bd; padding-bottom: 0.5rem; margin-bottom: 1rem;">
+          <h3 class="table-title" style="border: none; margin: 0; padding: 0; color:#4f81bd;"><i class="fa-solid fa-list"></i> ANEXO: ANÁLISIS DETALLADO POR DISTRITO</h3>
+          <button id="btnToggleDetalle" class="btn btn-secondary btn-sm" style="border-radius: 12px;">Mostrar / Ocultar</button>
+        </div>
+        
+        <div id="contenedorDetalleDistritos" style="display: none;">
+          <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+            <table class="data-table sticky-header" id="tableDetalleDistritos">
+              <thead>
+                <tr>
+                  <th>#</th><th>Distrito</th><th>Empleados</th><th>% Total</th>
+                  <th>Dist. Prom. CD (km)</th><th>Clasif. CD</th>
+                  <th>Dist. Prom. Paradero (km)</th><th>Clasif. Paradero</th>
+                  <th>Ruta Principal</th><th>Observación</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div> <!-- Fin viewOperacionDemografia -->
+
+    <!-- VISTA 2: ANÁLISIS DE COSTOS Y EFICIENCIA (Hoja ANALISIS_COSTOS) -->
+    <div id="viewAnalisisCostos" class="tab-view-pane hidden">
+
+        <!-- NIVEL 1: Resumen Ejecutivo de la Semana (KPIs) & Alertas -->
+        <div class="cost-summary-grid">
+          
+          <!-- Bloque de 8 KPIs Ejecutivos -->
+          <div class="clay-card cost-kpi-block" style="padding: 1.5rem;">
+            <h4 class="cost-subheading" style="margin: 0 0 1rem 0; color: #f8fafc; font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-briefcase" style="color: #3b82f6;"></i> RESUMEN EJECUTIVO DE LA SEMANA
+            </h4>
+            <div class="kpi-grid cost-kpis-8">
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Total Viajes</div>
+                <div class="kpi-value" id="costTotalViajes">-</div>
+                <div class="kpi-subtitle">Despachos realizados</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Total Pasajeros</div>
+                <div class="kpi-value" id="costTotalPasajeros">-</div>
+                <div class="kpi-subtitle">Colaboradores movilizados</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Capacidad Total</div>
+                <div class="kpi-value" id="costCapacidadTotal">-</div>
+                <div class="kpi-subtitle">Asientos programados</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">% Ocupación Prom.</div>
+                <div class="kpi-value" id="costOcupacionProm">-</div>
+                <div class="kpi-subtitle">Eficiencia global de flota</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Costo Total Semanal</div>
+                <div class="kpi-value" id="costTotalSemana" style="color: #60a5fa;">S/ 0.00</div>
+                <div class="kpi-subtitle">Inversión acumulada</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Costo / Pasajero</div>
+                <div class="kpi-value" id="costPromPasajero">-</div>
+                <div class="kpi-subtitle">Meta: &lt; S/ 15.00</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Costo / Viaje</div>
+                <div class="kpi-value" id="costPromViaje">-</div>
+                <div class="kpi-subtitle">Promedio por unidad</div>
+              </div>
+              <div class="kpi-card cost-sub-kpi">
+                <div class="kpi-title">Rutas Únicas</div>
+                <div class="kpi-value" id="costRutasUnicas">-</div>
+                <div class="kpi-subtitle">Rutas con servicio</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bloque de Alertas Críticas -->
+          <div class="clay-card cost-alert-block" style="padding: 1.5rem;">
+            <h4 class="cost-alert-heading">
+              <i class="fa-solid fa-triangle-exclamation"></i> ALERTAS DE FLOTA
+            </h4>
+            <div class="cost-alert-content">
+              <div class="cost-alert-row">
+                <span class="cost-alert-label">Rutas con ocupación &lt; 50%:</span>
+                <span class="cost-alert-val badge badge-danger" id="alertRutasBajas">0</span>
+              </div>
+              <div class="cost-alert-row">
+                <span class="cost-alert-label">Rutas con ocupación ≥ 90%:</span>
+                <span class="cost-alert-val badge badge-success" id="alertRutasAltas">0</span>
+              </div>
+              <div class="cost-alert-row" style="margin-top: 10px; border-top: 1px solid #334155; padding-top: 10px;">
+                <span class="cost-alert-label" style="font-weight: 700;">Eficiencia Global:</span>
+                <span class="cost-alert-val" id="alertEficienciaGlobal">-</span>
+              </div>
+            </div>
+            
+            <div class="alert-info-footer">
+              <small id="alertEficienciaMsg">Monitoreando desempeño semanal de la flota</small>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- NIVEL 2: Gráficos de Eficiencia y Costos -->
+        <div class="charts-grid mt-4">
+          <div class="chart-container clay-card">
+            <div style="border-bottom: 1px solid #334155; padding-bottom: 0.85rem; margin-bottom: 1.25rem;">
+              <h3 style="border-bottom: none; margin-bottom: 0.35rem; padding-bottom: 0;"><i class="fa-solid fa-gauge-high"></i> % Ocupación por Ruta (Semanal)</h3>
+              <span class="kpi-subtitle" style="font-size: 0.78rem; color: #94a3b8; display: block;">
+                Semáforo: 🟢 Óptimo (≥90%) | 🔵 OK (70-89%) | 🟡 Bajo (50-69%) | 🔴 Muy Bajo (&lt;50%) | Meta: 70%
+              </span>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chartOcupacionRutasCostos"></canvas>
+            </div>
+          </div>
+
+          <div class="chart-container clay-card">
+            <div style="border-bottom: 1px solid #334155; padding-bottom: 0.85rem; margin-bottom: 1.25rem;">
+              <h3 style="border-bottom: none; margin-bottom: 0.35rem; padding-bottom: 0;"><i class="fa-solid fa-scale-balanced"></i> Costo Total vs Pasajeros por Ruta</h3>
+              <span class="kpi-subtitle" style="font-size: 0.78rem; color: #94a3b8; display: block;">
+                Inversión económica (S/) comparada con el volumen de colaboradores atendidos
+              </span>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chartCostoPasajerosRutas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- NIVEL 2.5: Trazabilidad y Fluctuación de Pasajeros durante la Semana -->
+        <div class="clay-card mt-4" id="cardTrazabilidadPasajerosSemana">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 0.85rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="border-bottom: none; margin-bottom: 0.35rem; padding-bottom: 0;">
+                <i class="fa-solid fa-chart-line" style="color: #38bdf8;"></i> Trazabilidad de Pasajeros durante la Semana
+              </h3>
+              <span class="kpi-subtitle" style="font-size: 0.78rem; color: #94a3b8; display: block;" id="subtituloTrazabilidadSemana">
+                Fluctuación del volumen diario de colaboradores (Lunes a Domingo) por turno y comparativo operativo
+              </span>
+            </div>
+            <div id="badgeTrazabilidadSemana" style="display: flex; gap: 8px; align-items: center;">
+              <span class="badge badge-info" id="badgeSemanaTrazabilidad">Semana -</span>
+            </div>
+          </div>
+          <div class="chart-wrapper" style="height: 330px;">
+            <canvas id="chartTrazabilidadSemana"></canvas>
+          </div>
+        </div>
+
+        <!-- NIVEL 3: Tabla Detalle por Ruta de la Semana -->
+        <div class="clay-card mt-4">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+            <h3 class="table-title" style="margin: 0; padding: 0; border: none;">
+              <i class="fa-solid fa-table-list"></i> DETALLE DE EFICIENCIA Y COSTO POR RUTA (SEMANA ANALIZADA)
+            </h3>
+            <span class="badge badge-info" id="badgeSemanaTabla">Semana -</span>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table" id="tablaDetalleCostosSemana">
+              <thead>
+                <tr>
+                  <th>RUTA</th>
+                  <th style="text-align: center;">VIAJES</th>
+                  <th style="text-align: center;">PASAJEROS</th>
+                  <th style="text-align: center;">CAPACIDAD</th>
+                  <th style="text-align: center;">% OCUP</th>
+                  <th style="text-align: right;">COSTO TOTAL</th>
+                  <th style="text-align: right;">COSTO/VIAJE</th>
+                  <th style="text-align: right;">COSTO/PASAJ</th>
+                  <th style="text-align: center;">ESTADO</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyDetalleCostosSemana">
+                <!-- Se puebla dinámicamente -->
+              </tbody>
+              <tfoot id="tfootDetalleCostosSemana" style="font-weight: 700; background: rgba(30, 41, 59, 0.95); border-top: 2px solid #3b82f6;">
+                <!-- Fila de TOTAL consolidada -->
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- NIVEL 4: Ranking de Eficiencia por Ruta (Top 3 Más vs Menos Eficientes) -->
+        <div class="clay-card mt-4">
+          <h3 class="table-title" style="color: #a855f7; border-color: #a855f7; margin-bottom: 1.25rem;">
+            <i class="fa-solid fa-trophy"></i> RANKING DE EFICIENCIA POR RUTA
+          </h3>
+          <div class="ranking-split-grid">
+            
+            <!-- Top 3 Más Eficientes -->
+            <div class="ranking-panel">
+              <h4 class="ranking-header top-header">
+                <i class="fa-solid fa-medal" style="color: #eab308;"></i> TOP 3 MÁS EFICIENTES
+              </h4>
+              <div class="table-responsive">
+                <table class="data-table ranking-table">
+                  <thead>
+                    <tr><th>Ruta</th><th style="text-align: center;">% Ocup</th><th style="text-align: right;">Costo/Viaje</th></tr>
+                  </thead>
+                  <tbody id="tbodyTopEficientes"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Top 3 Menos Eficientes -->
+            <div class="ranking-panel">
+              <h4 class="ranking-header bottom-header">
+                <i class="fa-solid fa-triangle-exclamation" style="color: #f43f5e;"></i> TOP 3 MENOS EFICIENTES
+              </h4>
+              <div class="table-responsive">
+                <table class="data-table ranking-table">
+                  <thead>
+                    <tr><th>Ruta</th><th style="text-align: center;">% Ocup</th><th style="text-align: right;">Costo/Viaje</th></tr>
+                  </thead>
+                  <tbody id="tbodyBottomEficientes"></tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- NIVEL 5: Recomendaciones para Toma de Decisiones & Proyección Mensual -->
+        <div class="recommendations-projection-grid mt-4">
+          
+          <!-- Recomendaciones Dinámicas -->
+          <div class="clay-card card-recom-decisiones">
+            <h3 class="table-title" style="color: #22c55e; border-color: #22c55e; margin-bottom: 1.25rem;">
+              <i class="fa-solid fa-lightbulb"></i> RECOMENDACIONES DE TOMA DE DECISIONES (Basadas en REGISTRO_DIARIO)
+            </h3>
+            <div class="table-responsive">
+              <table class="data-table" id="tablaRecomendacionesDecisiones">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Situación Detectada</th>
+                    <th>Condición</th>
+                    <th>Recomendación</th>
+                    <th style="text-align: center;">Prioridad</th>
+                    <th>Impacto Estimado</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyRecomendacionesDecisiones">
+                  <!-- Calculado dinámicamente con fórmulas del Excel -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Proyección Mensual (x4) -->
+          <div class="clay-card card-proy-mensual">
+            <h3 class="table-title" style="color: #38bdf8; border-color: #38bdf8; margin-bottom: 1.25rem;">
+              <i class="fa-solid fa-calculator"></i> PROYECCIÓN MENSUAL (x4)
+            </h3>
+            <div class="table-responsive">
+              <table class="data-table" id="tablaProyeccionMensual">
+                <thead>
+                  <tr>
+                    <th>KPI</th>
+                    <th style="text-align: right;">Semanal</th>
+                    <th style="text-align: right;">Mensual (x4)</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyProyeccionMensual">
+                  <!-- Calculado con valores x4 -->
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top: 14px; font-size: 0.8rem; color: #94a3b8; line-height: 1.45; border-top: 1px solid #334155; padding-top: 10px;">
+              <i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> La proyección mensual estima el comportamiento a 4 semanas operativas para presupuestación financiera y control de desvíos.
+            </div>
+          </div>
+
+        </div>
+
+      </div> <!-- Fin viewAnalisisCostos -->
+
+      <!-- VISTA 3: MAPA DE CALOR DEMOGRÁFICO DE EMPLEADOS -->
+      <div id="viewMapaCalor" class="tab-view-pane hidden">
+        
+        <!-- NIVEL 1: KPIs Demográficos de Concentración -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title"><i class="fa-solid fa-users-viewfinder" style="color: #38bdf8;"></i> Colaboradores Georreferenciados</div>
+            <div class="kpi-value" id="kpiCalorTotalEmps">-</div>
+            <div class="kpi-subtitle" id="kpiCalorTotalEmpsSub">Con coordenadas GPS activas</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title"><i class="fa-solid fa-city" style="color: #f59e0b;"></i> Distrito Núcleo (Top 1)</div>
+            <div class="kpi-value" id="kpiCalorTopDistrito" style="font-size: clamp(1.1rem, 2vw, 1.45rem);">-</div>
+            <div class="kpi-subtitle" id="kpiCalorTopDistritoSub">Mayor densidad residencial</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title"><i class="fa-solid fa-compass" style="color: #10b981;"></i> Distancia Media al CD</div>
+            <div class="kpi-value" id="kpiCalorDistMedia">-</div>
+            <div class="kpi-subtitle">Radio hacia CD Huachipa</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title"><i class="fa-solid fa-person-walking-dashed-line-arrow-right" style="color: #ec4899;"></i> Oportunidad de Cobertura</div>
+            <div class="kpi-value" id="kpiCalorLejosParadero" style="color: #f59e0b;">-</div>
+            <div class="kpi-subtitle" id="kpiCalorLejosParaderoSub">> 2 km de paraderos oficiales</div>
+          </div>
+        </div>
+
+        <!-- NIVEL 2: Barra de Filtros y Capas del Mapa de Calor -->
+        <div class="clay-card heatmap-toolbar-card mt-4">
+          <div class="heatmap-toolbar-content">
+            <!-- Filtro Rápido Área -->
+            <div class="heatmap-control-group">
+              <label><i class="fa-solid fa-layer-group" style="color: #60a5fa;"></i> Área:</label>
+              <div class="chip-group" id="chipAreaCalor">
+                <button class="chip active" data-value="TODOS">TODOS</button>
+                <button class="chip" data-value="SECOS">SECOS</button>
+                <button class="chip" data-value="PPA">PPA</button>
+                <button class="chip" data-value="FRESCOS">FRESCOS</button>
+              </div>
+            </div>
+
+            <!-- Filtro Rápido Tipo -->
+            <div class="heatmap-control-group">
+              <label><i class="fa-solid fa-user-tag" style="color: #38bdf8;"></i> Tipo:</label>
+              <div class="chip-group" id="chipTipoCalor">
+                <button class="chip active" data-value="TODOS">TODOS</button>
+                <button class="chip" data-value="OPERARIO">OPERARIO</button>
+                <button class="chip" data-value="STAFF">STAFF</button>
+              </div>
+            </div>
+
+            <!-- Filtro por Distrito -->
+            <div class="heatmap-control-group" style="min-width: 190px;">
+              <label><i class="fa-solid fa-location-dot" style="color: #f43f5e;"></i> Distrito:</label>
+              <select id="selectDistritoCalor" class="form-control form-control-sm">
+                <option value="TODOS">Todos los Distritos</option>
+              </select>
+            </div>
+
+            <!-- Toggles de Capas del Mapa -->
+            <div class="heatmap-control-group heatmap-toggles-wrap">
+              <label class="heatmap-toggle-label" title="Activar/desactivar capa de calor continuo">
+                <input type="checkbox" id="toggleLayerHeat" checked>
+                <span><i class="fa-solid fa-fire text-warning"></i> Calor</span>
+              </label>
+              <label class="heatmap-toggle-label" title="Mostrar ubicaciones individuales de cada colaborador (hogares)">
+                <input type="checkbox" id="toggleLayerPoints">
+                <span><i class="fa-solid fa-users text-info"></i> Colaboradores</span>
+              </label>
+              <label class="heatmap-toggle-label" title="Superponer trazado de paraderos oficiales de movilidad">
+                <input type="checkbox" id="toggleLayerParaderos" checked>
+                <span><i class="fa-solid fa-bus text-success"></i> Paraderos</span>
+              </label>
+            </div>
+
+            <!-- Control Slider de Radio Térmico -->
+            <div class="heatmap-control-group heatmap-slider-group">
+              <div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: #94a3b8; margin-bottom: 2px;">
+                <span>Dispersión:</span>
+                <span id="labelHeatRadius" style="color: #38bdf8; font-weight: 600;">25px</span>
+              </div>
+              <input type="range" id="sliderHeatRadius" min="12" max="45" value="25" class="heatmap-slider" title="Ajusta el radio térmico de cada punto">
+            </div>
+
+            <!-- Botón Centrar Mapa -->
+            <div class="heatmap-control-group" style="align-self: flex-end;">
+              <button id="btnRecenterHeatMap" class="btn btn-secondary btn-sm" style="height: 34px; border-radius: 9px; padding: 0 14px;" title="Centrar vista en Lima Metropolitana y CD Huachipa">
+                <i class="fa-solid fa-crosshairs"></i> Centrar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- NIVEL 3: Contenedor Principal del Mapa y Ranking Lateral de Distritos -->
+        <div class="heatmap-main-layout mt-4">
+          <!-- Tarjeta del Mapa Leaflet -->
+          <div class="clay-card heatmap-map-card">
+            <div id="mapaCalorEmpleados" class="heatmap-canvas-container"></div>
+            
+            <!-- Leyenda Térmica Flotante en el Mapa -->
+            <div class="heatmap-floating-legend">
+              <span class="legend-label"><i class="fa-solid fa-fire text-warning"></i> Densidad de Calor:</span>
+              <div class="legend-gradient"></div>
+              <div class="legend-scale">
+                <span>Baja</span>
+                <span>Media</span>
+                <span>Alta</span>
+              </div>
+              <div style="border-top: 1px solid rgba(255, 255, 255, 0.12); margin: 6px 0 5px 0;"></div>
+              <span class="legend-label"><i class="fa-solid fa-users text-info"></i> Colaboradores por Área:</span>
+              <div style="display: flex; gap: 8px; font-size: 0.72rem; color: #cbd5e1; align-items: center; margin-bottom: 3px;">
+                <span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#3b82f6; margin-right:4px;"></span>Secos</span>
+                <span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#10b981; margin-right:4px;"></span>PPA</span>
+                <span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#f59e0b; margin-right:4px;"></span>Frescos</span>
+              </div>
+              <div style="display: flex; gap: 6px; font-size: 0.72rem; color: #cbd5e1; align-items: center;">
+                <span style="background: #059669; color: #fff; padding: 1px 5px; border-radius: 4px; font-size: 0.68rem; border: 1px solid #a7f3d0;"><i class="fa-solid fa-bus"></i> Paradero</span>
+                <span style="font-size: 0.68rem; color: #94a3b8;">Paradas de ruta</span>
+              </div>
+            </div>
+
+            <!-- Badge Informativo CD Principal -->
+            <div class="heatmap-cd-badge">
+              <i class="fa-solid fa-warehouse" style="color: #3b82f6;"></i>
+              <span>📍 Centro de Distribución (Base Central)</span>
+            </div>
+          </div>
+
+          <!-- Panel Lateral de Distribución por Distritos -->
+          <div class="clay-card heatmap-ranking-card" id="panelTopDistritosCalor">
+            <div class="ranking-card-header">
+              <h4 style="margin: 0; font-size: 0.98rem; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-ranking-star" style="color: #f59e0b;"></i> Concentración por Distritos
+              </h4>
+              <span id="badgeTotalDistritosCount" class="badge badge-info" style="font-size: 0.72rem;">0 Distritos</span>
+            </div>
+            <p style="font-size: 0.78rem; color: #94a3b8; margin: 6px 0 12px 0;">
+              Haz clic en cualquier distrito para enfocar el mapa automáticamente:
+            </p>
+            <div class="ranking-card-body" id="listaDistritosCalor">
+              <!-- Se puebla dinámicamente con barras interactivas y flyTo -->
+            </div>
+          </div>
+        </div>
+
+      </div> <!-- Fin viewMapaCalor -->
+
+    </section>
+
+  </main>
+
+  <!-- Toast / Notificaciones Flotantes -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Botón Flotante Asistente IA -->
+  <button id="btnFloatingAi" class="floating-ai-trigger" type="button" title="Abrir Asistente IA Logístico">
+    <div class="ai-sparkle-icon">
+      <i class="fa-solid fa-robot"></i>
+    </div>
+    <div class="ai-trigger-text">
+      <span class="ai-title">Asistente IA</span>
+      <span class="ai-free-tag"><i class="fa-solid fa-shield-halved"></i> 100% Gratis</span>
+    </div>
+  </button>
+
+  <!-- Overlay y Drawer del Asistente IA -->
+  <div id="aiDrawerOverlay" class="ai-drawer-overlay"></div>
+  <aside id="aiChatDrawer" class="ai-chat-drawer" aria-label="Asistente Logístico IA">
+    <!-- Header -->
+    <div class="ai-drawer-header">
+      <div class="ai-header-info">
+        <div class="ai-avatar">
+          <i class="fa-solid fa-robot"></i>
+        </div>
+        <div class="ai-title-wrap">
+          <h3>Asistente Logístico IA</h3>
+          <div class="ai-status-indicator">
+            <span id="aiStatusDot" class="ai-status-dot"></span>
+            <span id="aiStatusText">Conectado (Gemini Free)</span>
+          </div>
+        </div>
+      </div>
+      <div class="ai-header-actions">
+        <button id="btnExportCopilotQuick" class="btn-ai-tool" title="Copiar reporte para Microsoft Copilot (Teams / M365)">
+          <i class="fa-solid fa-copy"></i>
+        </button>
+        <button id="btnClearAiChat" class="btn-ai-tool" title="Limpiar conversación">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+        <button id="btnCloseAiDrawer" class="btn-ai-tool" title="Cerrar asistente">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de Contexto Operativo Activo -->
+    <div class="ai-context-banner">
+      <div class="ai-context-text" id="aiContextSummaryText">
+        <i class="fa-solid fa-database" style="color: #38bdf8;"></i>
+        <span>Contexto: <b>Cargando datos...</b></span>
+      </div>
+      <label class="ai-context-toggle" title="Incluye en tu pregunta los KPIs y rutas filtradas actualmente">
+        <input type="checkbox" id="checkIncludeContext" checked>
+        <span>Enviar datos activos</span>
+      </label>
+    </div>
+
+    <!-- Mensajes del Chat -->
+    <div class="ai-messages-container" id="aiMessagesContainer">
+      <!-- Mensaje Inicial de Bienvenida -->
+      <div class="ai-msg assistant">
+        <div class="ai-msg-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="ai-msg-bubble">
+          <p>¡Hola! Soy tu <b>Asistente de Optimización de Transporte</b> para el Centro de Distribución.</p>
+          <p>Tengo acceso en tiempo real a las semanas operativas, ocupación de buses, costos y personal de tu pantalla. ¿Qué deseas analizar hoy?</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Banner de Pausa Preventiva por Límite de Cuota (429) -->
+    <div id="aiPausedBanner" class="ai-paused-banner">
+      <i class="fa-solid fa-hourglass-half fa-spin"></i>
+      <div style="flex: 1;">
+        <b>Pausa Preventiva:</b> Límite gratuito temporal alcanzado.
+        <div>Reanudando en <span id="aiCountdownTimer" class="ai-countdown-badge">60s</span> (Sin costo alguno)</div>
+      </div>
+    </div>
+
+    <!-- Chips de Preguntas Frecuentes -->
+    <div class="ai-quick-chips">
+      <button class="ai-chip-btn" data-query="¿Cuáles son las rutas más críticas de esta semana y por qué?">🚨 Rutas críticas (&lt; 50%)</button>
+      <button class="ai-chip-btn" data-query="¿Qué rutas deberíamos cambiar a vans o sprinter para ahorrar costos?">💡 Ahorro con Vans</button>
+      <button class="ai-chip-btn" data-query="Haz un resumen ejecutivo de costos, ocupación y desvíos para mi gerencia.">📊 Informe Gerencial</button>
+      <button class="ai-chip-btn" data-query="¿Cuál es el costo por pasajero y qué rutas están fuera de la meta de S/ 15?">💵 Costo por Pasajero</button>
+    </div>
+
+    <!-- Footer con Input -->
+    <div class="ai-drawer-footer">
+      <div class="ai-input-container">
+        <textarea id="aiChatInput" class="ai-textarea" placeholder="Escribe tu consulta sobre rutas, costos, ocupación..." rows="1"></textarea>
+        <button id="btnSendAiChat" class="btn-ai-send" title="Enviar mensaje">
+          <i class="fa-solid fa-paper-plane"></i>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Scripts Globales (Módulos) -->
+  <script src="../../js/config.js"></script>
+  <script src="../../js/google-sheets.js?v=4.0"></script>
+  <script src="../../js/clipboard.js"></script> <!-- Reutilizado para Toasts -->
+  
+  <!-- Leaflet JS (Mapeo de Rutas) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet Heat JS (Mapa de Calor Acelerado por Hardware) -->
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <!-- Leaflet PolylineDecorator JS (Flechas direccionales de flujo en rutas) -->
+  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+
+  <!-- Script Específico de Movilidad -->
+  <script src="js/movilidad.js?v=4.8"></script>
+</body>
+</html>

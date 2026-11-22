@@ -1,0 +1,478 @@
+/**
+ * Google Identity Services & Google Sheets API v4 Integration
+ * Maneja el flujo OAuth 2.0 mediante GSI (Google Identity Services)
+ * y realiza consultas directas a la API v4 de Google Sheets.
+ */
+
+const GoogleSheetsService = {
+  // Scopes requeridos para leer hojas de cálculo y listar archivos en Drive
+  SCOPES: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.readonly',
+  
+  tokenClient: null,
+  accessToken: null,
+  tokenExpiresAt: null,
+  userEmail: null,
+  cachedClientId: null,
+
+  /**
+   * Obtiene el Client ID de forma asíncrona:
+   * 1. Desde window.APP_CONFIG.DEFAULT_GOOGLE_CLIENT_ID (inyectado en GitHub Pages o definido en js/config.js)
+   * 2. Desde la función Serverless de Vercel (/api/config)
+   * 3. Desde localStorage (fallback para desarrollo local)
+   */
+  async getClientId() {
+    if (this.cachedClientId) {
+      return this.cachedClientId;
+    }
+
+    // 1. Verificar si está definido en config.js (ignorando el placeholder de plantilla)
+    if (window.APP_CONFIG && window.APP_CONFIG.DEFAULT_GOOGLE_CLIENT_ID) {
+      const candidate = window.APP_CONFIG.DEFAULT_GOOGLE_CLIENT_ID.trim();
+      if (candidate && candidate !== 'TU_CLIENT_ID_AQUI') {
+        this.cachedClientId = candidate;
+        return this.cachedClientId;
+      }
+    }
+
+    // 2. Intentar obtener desde el endpoint Serverless (/api/config en Vercel)
+    const configEndpoint = (window.APP_CONFIG && window.APP_CONFIG.VERCEL_CONFIG_ENDPOINT) || '/api/config';
+    try {
+      const res = await fetch(configEndpoint, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (window.APP_CONFIG) {
+          if (data.mapboxToken && data.mapboxToken !== 'TU_MAPBOX_TOKEN_AQUI') {
+            window.APP_CONFIG.MAPBOX_TOKEN = data.mapboxToken.trim();
+          }
+          if (data.hasGeminiProxy) {
+            window.APP_CONFIG.HAS_GEMINI_PROXY = true;
+          }
+        }
+        if (data.clientId && data.clientId !== 'TU_CLIENT_ID_AQUI') {
+          this.cachedClientId = data.clientId.trim();
+          return this.cachedClientId;
+        }
+      }
+    } catch (e) {
+      // En GitHub Pages o servidor estático local dará 404; continuar al fallback
+    }
+
+    // 3. Fallback en localStorage (útil para desarrollo en localhost)
+    const localCid = localStorage.getItem('sheetpivot_google_client_id');
+    if (localCid && localCid.trim() !== 'TU_CLIENT_ID_AQUI') {
+      this.cachedClientId = localCid.trim();
+      return this.cachedClientId;
+    }
+
+    return '';
+  },
+
+  /**
+   * Inicializa el estado desde localStorage para sobrevivir a los reinicios (F5) y compartir entre pestañas
+   */
+  initAuth() {
+    const storedToken = localStorage.getItem('gapi_access_token');
+    const storedExpiry = localStorage.getItem('gapi_expires_at');
+    const storedEmail = localStorage.getItem('gapi_user_email');
+    
+    if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry, 10)) {
+      this.accessToken = storedToken;
+      this.tokenExpiresAt = parseInt(storedExpiry, 10);
+      this.userEmail = storedEmail;
+    } else {
+      this.clearLocalSession();
+    }
+  },
+
+  clearLocalSession() {
+    this.accessToken = null;
+    this.tokenExpiresAt = null;
+    this.userEmail = null;
+    localStorage.removeItem('gapi_access_token');
+    localStorage.removeItem('gapi_expires_at');
+    localStorage.removeItem('gapi_user_email');
+  },
+
+  /**
+   * Inicializa el cliente de token de Google Identity Services
+   */
+  async initTokenClient(callback) {
+    const clientId = await this.getClientId();
+    if (!clientId) {
+      console.warn('Google Client ID no está configurado aún.');
+      return false;
+    }
+
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+      console.error('El SDK de Google Identity Services no está disponible.');
+      return false;
+    }
+
+    try {
+      this.tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: this.SCOPES,
+        callback: async (resp) => {
+          if (resp.error) {
+            console.error('Error durante la autenticación OAuth:', resp);
+            if (window.ClipboardUtil) {
+              window.ClipboardUtil.showToast(`Error de autenticación: ${resp.error_description || resp.error}`, 'danger');
+            }
+            return;
+          }
+
+          this.accessToken = resp.access_token;
+          // Estimar expiración (normalmente 3600 segundos)
+          this.tokenExpiresAt = Date.now() + (resp.expires_in || 3500) * 1000;
+          
+          localStorage.setItem('gapi_access_token', this.accessToken);
+          localStorage.setItem('gapi_expires_at', this.tokenExpiresAt.toString());
+
+          // Obtener email del usuario
+          await this.fetchUserProfile();
+
+          if (window.ClipboardUtil) {
+            window.ClipboardUtil.showToast(`¡Conectado exitosamente con Google (${this.userEmail || 'OK'})!`, 'success');
+          }
+
+          if (callback) callback(true);
+        },
+      });
+      return true;
+    } catch (err) {
+      console.error('Error al inicializar tokenClient de Google:', err);
+      return false;
+    }
+  },
+
+  /**
+   * Solicita el token de acceso OAuth 2.0 (muestra la ventana emergente de Google)
+   */
+  async requestAccessToken(callback) {
+    const clientId = await this.getClientId();
+    if (!clientId) {
+      if (window.ClipboardUtil) {
+        window.ClipboardUtil.showToast('No se encontró el Google Client ID configurado en el servidor o en config.js', 'danger', 5000);
+      }
+      return;
+    }
+
+    if (!this.tokenClient) {
+      const initialized = await this.initTokenClient(callback);
+      if (!initialized) return;
+    }
+
+    // Solicitar token (abre el popup de selección de cuenta)
+    this.tokenClient.requestAccessToken({ prompt: '' });
+  },
+
+  /**
+   * Comprueba si el usuario está autenticado y el token sigue vigente
+   */
+  isAuthenticated() {
+    return !!(this.accessToken && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt);
+  },
+
+  /**
+   * Cierra sesión localmente
+   */
+  logout() {
+    if (this.accessToken && typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+      try {
+        google.accounts.oauth2.revoke(this.accessToken, () => {
+          console.log('Token de acceso revocado.');
+        });
+      } catch (e) {
+        console.warn('Error al revocar token:', e);
+      }
+    }
+    this.clearLocalSession();
+  },
+
+  /**
+   * Obtiene la información básica del usuario conectado
+   */
+  async fetchUserProfile() {
+    if (!this.accessToken) return null;
+    try {
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this.userEmail = data.email || null;
+        if (this.userEmail) {
+          localStorage.setItem('gapi_user_email', this.userEmail);
+        }
+        return data;
+      }
+    } catch (e) {
+      console.warn('No se pudo obtener el perfil de usuario:', e);
+    }
+    return null;
+  },
+
+  /**
+   * Extrae el ID del Spreadsheet a partir de una URL completa o de un ID directo
+   * @param {string} input - URL o ID del Sheet
+   * @returns {string|null} ID extraído o null
+   */
+  extractSpreadsheetId(input) {
+    if (!input) return null;
+    const trimmed = input.trim();
+    // Expresión regular para capturar el ID de Google Sheets
+    const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    // Si no es URL, verificar si tiene formato de ID de Google Sheet (alfanumérico largo)
+    if (/^[a-zA-Z0-9-_]{15,}$/.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  },
+
+  /**
+   * Obtiene los metadatos del Spreadsheet (específicamente la lista de pestañas/hojas)
+   * @param {string} spreadsheetId 
+   * @returns {Promise<Array<{title: string, sheetId: number}>>}
+   */
+  async fetchSheetTabs(spreadsheetId) {
+    if (!this.isAuthenticated()) {
+      throw new Error('Debes iniciar sesión con Google para acceder a hojas de cálculo compartidas.');
+    }
+
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearLocalSession();
+        if (typeof updateAuthUI === 'function') updateAuthUI(false);
+        throw new Error('Tu sesión de Google ha expirado o requiere validación. Por favor haz clic en "Acceder con Google" para renovarla.');
+      }
+      const errorJson = await response.json().catch(() => ({}));
+      let message = errorJson.error?.message || `Error HTTP ${response.status}: No se pudo leer el archivo. Verifica que haya sido compartido.`;
+      if (response.status === 400) {
+        message += " (Tip: Si tu archivo es un Excel .xlsx, debes abrirlo en Drive y darle a 'Archivo > Guardar como Hoja de cálculo de Google' para poder conectarlo).";
+      }
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    if (!data.sheets || !data.sheets.length) {
+      throw new Error('El archivo no contiene hojas visibles.');
+    }
+
+    return data.sheets.map(s => ({
+      title: s.properties.title,
+      sheetId: s.properties.sheetId
+    }));
+  },
+
+  /**
+   * Lee todos los valores de una pestaña específica de la hoja de cálculo
+   * @param {string} spreadsheetId 
+   * @param {string} tabName 
+   * @returns {Promise<{headers: Array<string>, rows: Array<Object>, rawValues: Array<Array<any>>}>}
+   */
+  async fetchSheetData(spreadsheetId, tabName) {
+    if (!this.isAuthenticated()) {
+      throw new Error('Debes iniciar sesión con Google para acceder al contenido.');
+    }
+
+    // Codificar el nombre de la pestaña para la URL
+    const encodedRange = encodeURIComponent(tabName);
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearLocalSession();
+        if (typeof updateAuthUI === 'function') updateAuthUI(false);
+        throw new Error('Tu sesión de Google ha expirado o requiere validación. Por favor haz clic en "Acceder con Google" para renovarla.');
+      }
+      const errorJson = await response.json().catch(() => ({}));
+      let message = errorJson.error?.message || `Error al obtener datos de la hoja "${tabName}".`;
+      if (response.status === 400) {
+        message += " (Tip: Si tu archivo es un Excel .xlsx, guárdalo como Hoja de cálculo de Google primero).";
+      }
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    const rawValues = data.values || [];
+
+    if (rawValues.length === 0) {
+      throw new Error(`La pestaña "${tabName}" está vacía.`);
+    }
+
+    return this.parseSheetMatrix(rawValues);
+  },
+
+  /**
+   * Convierte una matriz 2D de valores de Sheets en encabezados y objetos de fila estructurados
+   * @param {Array<Array<any>>} values 
+   */
+  parseSheetMatrix(values) {
+    if (!values || values.length === 0) {
+      return { headers: [], rows: [], rawValues: [] };
+    }
+
+    // Identificar inteligentemente la fila de cabeceras en las primeras 10 filas.
+    // Esto evita confundir filas de título, anotaciones aisladas (ej. texto suelto en P1)
+    // o nombres de tablas de Excel ("Tabla6" en A1) con las verdaderas cabeceras del sistema.
+    const COMMON_HEADER_KEYWORDS = [
+      'DNI', 'FECHA', 'DATE', 'SEMANA', 'SEM', 'RUTA', 'RUTAS', 'DÍA', 'DIA', 'DAY',
+      'NOMBRE', 'NOMBRES', 'APELLIDO', 'APELLIDOS', 'COLABORADOR', 'EMPLEADO', 'TRABAJADOR',
+      'DIST', 'DISTRITO', 'TURNO', 'TIPO', 'TIPO_BUS', 'VEHICULO', 'COSTO', 'TARIFA',
+      'CAPACIDAD', 'CAP', 'CANTIDAD', 'OBSERVACIONES', 'COORDENADAS', 'LAT', 'LNG', 'LON',
+      'PARADERO', 'CLASIFICACION', 'CLASIFICACIÓN', 'AREA', 'ÁREA', 'SECUENCIA', 'ORDEN',
+      'CODIGO', 'CÓDIGO', 'ID', 'USERID', 'USER ID', 'DOCUMENTO', 'HORA', 'ESTADO', 'PLACA',
+      'LINEA', 'TOTAL', 'DESCRIPCION', 'PASAJEROS'
+    ];
+
+    let headerRowIndex = -1;
+    let lastValidColIndex = -1;
+    let bestScore = -1;
+
+    const maxScanRows = Math.min(values.length, 10);
+
+    for (let r = 0; r < maxScanRows; r++) {
+      const row = values[r] || [];
+      let rowMaxCol = -1;
+      let nonBlankCount = 0;
+      let keywordHits = 0;
+
+      for (let c = 0; c < row.length; c++) {
+        const val = row[c];
+        if (val !== null && val !== undefined && String(val).trim() !== '') {
+          rowMaxCol = c;
+          nonBlankCount++;
+
+          const strVal = String(val).trim().toUpperCase();
+          const isKeyword = COMMON_HEADER_KEYWORDS.some(kw => 
+            strVal === kw || 
+            strVal.startsWith(kw + ' ') || 
+            strVal.endsWith(' ' + kw) || 
+            strVal.includes('_' + kw) || 
+            strVal.includes(kw + '_') ||
+            strVal.includes('/' + kw) ||
+            strVal.includes(kw + '/')
+          );
+          if (isKeyword) {
+            keywordHits++;
+          }
+        }
+      }
+
+      if (nonBlankCount > 0) {
+        // Puntuación ponderada:
+        // - 20 puntos por cada palabra clave típica de cabecera encontrada
+        // - 1 punto por cada columna no vacía
+        const score = (keywordHits * 20) + nonBlankCount;
+        if (score > bestScore) {
+          bestScore = score;
+          headerRowIndex = r;
+          lastValidColIndex = rowMaxCol;
+        }
+      }
+    }
+
+    if (headerRowIndex === -1 || lastValidColIndex === -1) {
+      return { headers: [], rows: [], rawValues: values }; // Hoja totalmente en blanco
+    }
+
+    const rawHeaders = values[headerRowIndex] || [];
+
+    // Construir cabeceras solo hasta la última columna válida
+    const headers = [];
+    for (let i = 0; i <= lastValidColIndex; i++) {
+      const h = rawHeaders[i];
+      const title = h !== null && h !== undefined ? String(h).trim() : '';
+      headers.push(title || `Columna_${i + 1}`);
+    }
+
+    // Filas subsiguientes (a partir de la fila siguiente a la cabecera)
+    const rows = [];
+    for (let r = headerRowIndex + 1; r < values.length; r++) {
+      const rowArr = values[r] || [];
+      const rowObj = {};
+      let hasData = false;
+
+      // Solo leer hasta el límite de cabeceras establecidas
+      for (let c = 0; c < headers.length; c++) {
+        const header = headers[c];
+        const val = rowArr[c] !== undefined ? rowArr[c] : null;
+        rowObj[header] = val;
+        
+        if (val !== null && val !== undefined && String(val).trim() !== '') {
+          hasData = true;
+        }
+      }
+
+      // Omitir filas totalmente vacías
+      if (hasData) {
+        rows.push(rowObj);
+      }
+    }
+
+    return {
+      headers,
+      rows,
+      rawValues: values
+    };
+  },
+
+  /**
+   * Obtiene los archivos más recientes de tipo Spreadsheet del Drive del usuario
+   * @returns {Promise<Array>} Array de objetos archivo
+   */
+  async fetchRecentSpreadsheets() {
+    if (!this.accessToken) return null;
+    try {
+      // Incluimos tanto Google Sheets nativos como archivos de Excel (.xlsx) subidos a Drive
+      const query = encodeURIComponent("(mimeType='application/vnd.google-apps.spreadsheet' or mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') and trashed=false");
+      const url = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=recency desc&fields=files(id, name, modifiedTime, owners, mimeType)&pageSize=15`;
+      
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return data.files || [];
+      } else {
+        if (res.status === 401) {
+          console.warn('Google Drive token expirado (401). Limpiando sesión...');
+          this.clearLocalSession();
+          if (typeof updateAuthUI === 'function') updateAuthUI(false);
+          if (window.ClipboardUtil) {
+            window.ClipboardUtil.showToast('Tu sesión de Google expiró. Por favor vuelve a conectar con el botón de Google.', 'warning', 5000);
+          }
+        } else {
+          console.warn('Error fetching Drive files:', res.status, res.statusText);
+        }
+        return null;
+      }
+    } catch (e) {
+      console.error('Error in fetchRecentSpreadsheets:', e);
+      return null;
+    }
+  }
+};
+
+window.GoogleSheetsService = GoogleSheetsService;

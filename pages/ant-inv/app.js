@@ -1971,32 +1971,24 @@ function renderChartS3(weeks, evolution) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 10. MOTOR DE COPIA 16:9 NATIVO DIRECTO AL PORTAPAPELES (SIN DESCARGAS FORZADAS)
+// 10. MOTOR DE COPIA 16:9 NATIVO DIRECTO AL PORTAPAPELES (SIN MODAL NI DESCARGAS)
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function copyCurrentSlideToClipboard() {
-  if (isCapturing) return;
-  isCapturing = true;
+async function generateCurrentSlideBlob() {
+  const containerId = `slide${currentSlide}-container`;
+  const container = document.getElementById(containerId);
+  if (!container) throw new Error('Contenedor de diapositiva no encontrado');
 
-  const btn = document.getElementById('btnCapturePpt');
-  const originalText = btn ? btn.innerHTML : '';
-  if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Copiando...';
+  // 1. Aplicar clase que bloquea dimensiones estrictas 16:9 (1600x900)
+  container.classList.add('capturing-16-9');
+  if (currentSlide === 1 && chartInstanceS1) chartInstanceS1.resize();
+  if (currentSlide === 3 && chartInstanceS3) chartInstanceS3.resize();
+  await yieldToUi();
 
+  let renderedCanvas;
   try {
-    const containerId = `slide${currentSlide}-container`;
-    const container = document.getElementById(containerId);
-    if (!container) throw new Error('Contenedor de diapositiva no encontrado');
-
-    showToast(`📸 Generando diapositiva 16:9 de Lámina ${currentSlide}...`, 'info', 2000);
-
-    // 1. Aplicar clase que bloquea dimensiones estrictas 16:9 (1600x900)
-    container.classList.add('capturing-16-9');
-    if (currentSlide === 1 && chartInstanceS1) chartInstanceS1.resize();
-    if (currentSlide === 3 && chartInstanceS3) chartInstanceS3.resize();
-    await yieldToUi();
-
     // 2. Renderizar con html2canvas en alta definición capturando todo el scrollHeight
-    const renderedCanvas = await window.html2canvas(container, {
+    renderedCanvas = await window.html2canvas(container, {
       scale: 1.5, // Resolución nítida Retina
       backgroundColor: '#ffffff',
       useCORS: true,
@@ -2006,66 +1998,102 @@ async function copyCurrentSlideToClipboard() {
       windowWidth: 1600,
       height: container.scrollHeight
     });
-
+  } finally {
     // Restaurar vista web responsiva inmediatamente
     container.classList.remove('capturing-16-9');
     if (currentSlide === 1 && chartInstanceS1) chartInstanceS1.resize();
     if (currentSlide === 3 && chartInstanceS3) chartInstanceS3.resize();
+  }
 
-    // 3. Crear canvas panorámico exacto 1920x1080 (16:9)
-    const W = 1920;
-    const H = 1080;
-    const offscreen = document.createElement('canvas');
-    offscreen.width = W;
-    offscreen.height = H;
-    const ctx = offscreen.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, W, H);
+  // 3. Crear canvas panorámico exacto 1920x1080 (16:9)
+  const W = 1920;
+  const H = 1080;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = W;
+  offscreen.height = H;
+  const ctx = offscreen.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
 
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(renderedCanvas, 0, 0, W, H);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(renderedCanvas, 0, 0, W, H);
 
-    lastCapturedDataUrl = offscreen.toDataURL('image/png');
+  const blob = await new Promise((resolve, reject) => {
+    offscreen.toBlob((b) => {
+      if (b) resolve(b);
+      else reject(new Error('Error al crear imagen PNG de la diapositiva'));
+    }, 'image/png');
+  });
 
-    // 4. Escribir directamente al Portapapeles (Clipboard API)
-    offscreen.toBlob(async (blob) => {
-      if (!blob) {
-        showToast('Error al crear imagen de la diapositiva', 'danger');
-        return;
-      }
+  lastCapturedBlob = blob;
+  return blob;
+}
 
-      lastCapturedBlob = blob;
+async function copyCurrentSlideToClipboard() {
+  if (isCapturing) return;
+  isCapturing = true;
 
-      if (navigator.clipboard && window.ClipboardItem) {
+  const btn = document.getElementById('btnCapturePpt');
+  const originalText = btn ? btn.innerHTML : '';
+  if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Copiando...';
+
+  showToast(`📸 Copiando diapositiva 16:9 de Lámina ${currentSlide}...`, 'info', 2000);
+
+  try {
+    if (window.focus) window.focus();
+
+    // Iniciar generación del Blob PNG inmediatamente
+    const blobPromise = generateCurrentSlideBlob();
+    let copied = false;
+
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        // Registrar ClipboardItem síncronamente con la Promesa para preservar el gesto de usuario (User Activation)
+        // aunque html2canvas tarde más de 1 segundo en renderizar la lámina
+        const item = new ClipboardItem({ 'image/png': blobPromise });
+        await navigator.clipboard.write([item]);
+        copied = true;
+      } catch (asyncClipErr) {
+        // Respaldo para navegadores que requieren el Blob ya resuelto
         try {
+          const blob = await blobPromise;
+          if (window.focus) window.focus();
           const item = new ClipboardItem({ 'image/png': blob });
           await navigator.clipboard.write([item]);
-          showToast(`✅ ¡Lámina ${currentSlide} copiada al portapapeles! Lista para pegar en PowerPoint (Ctrl + V)`, 'success', 4000);
-        } catch (clipErr) {
-          console.warn('Acceso directo al portapapeles restringido:', clipErr);
-          // Solo si el navegador bloquea la escritura directa, mostrar modal de respaldo
-          showCopySuccessModal(lastCapturedDataUrl);
+          copied = true;
+        } catch (syncClipErr) {
+          console.warn('Error al escribir imagen en el portapapeles:', syncClipErr);
         }
-      } else {
-        showCopySuccessModal(lastCapturedDataUrl);
       }
-    }, 'image/png');
+    }
+
+    if (copied) {
+      showToast(`✅ ¡Lámina ${currentSlide} copiada al portapapeles! Lista para pegar en PowerPoint (Ctrl + V)`, 'success', 4000);
+      if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-check"></i> ¡Copiada!';
+        setTimeout(() => { if (btn) btn.innerHTML = originalText; }, 2200);
+      }
+    } else {
+      if (!document.hasFocus()) {
+        showToast('⚠️ La ventana perdió el foco antes de terminar el copiado. Mantén la ventana abierta 1 segundo al presionar Copiar.', 'warning', 5500);
+      } else {
+        showToast('No se pudo copiar la imagen al portapapeles. Vuelve a intentarlo.', 'danger', 4000);
+      }
+      if (btn) btn.innerHTML = originalText;
+    }
 
   } catch (err) {
     console.error('Error al capturar diapositiva:', err);
     showToast('No se pudo generar la diapositiva', 'danger');
-  } finally {
     if (btn) btn.innerHTML = originalText;
+  } finally {
     setTimeout(() => { isCapturing = false; }, 300);
   }
 }
 
-function showCopySuccessModal(dataUrl) {
-  const modal = document.getElementById('modalCopySuccess');
-  const img = document.getElementById('modalPreviewImg');
-  if (img) img.src = dataUrl;
-  if (modal) modal.style.display = 'flex';
+function showCopySuccessModal() {
+  // Deshabilitado permanentemente para copiar directo sin pasos extra (como Throughput)
 }
 
 function closeCopyModal() {

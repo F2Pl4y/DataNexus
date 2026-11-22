@@ -73,183 +73,42 @@ const RUTAS_OFICIALES = new Set([
 ]);
 
 // ==========================================================================
-// Catálogo Maestro de Horarios Oficiales de Rutas (Turno Mañana / Salida)
-// Fuente oficial de operación CD Huachipa
+// Resolución dinámica de horarios y sentido por paradero (100% desde Google Sheets)
 // ==========================================================================
-const HORARIOS_OFICIALES_RUTAS = {
-  '1': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /ferreter[ií]a/i, horaIngreso: '06:10 a.m.' },
-      { patron: /saracoto/i, horaIngreso: '06:13 a.m.' },
-      { patron: /fame/i, soloSalida: true },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '2': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /arco.*san.*antonio|san\s*antonio/i, horaIngreso: '06:00 a.m.' },
-      { patron: /para[ií]so/i, horaIngreso: '06:05 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '3': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /sta\.?\s*rosa|santa\s*rosa/i, horaIngreso: '05:15 a.m.' },
-      { patron: /aurora/i, horaIngreso: '05:20 a.m.' },
-      { patron: /15\s*de\s*julio/i, horaIngreso: '05:25 a.m.' },
-      { patron: /villa\s*hermosa/i, horaIngreso: '05:28 a.m.' },
-      { patron: /kimberly/i, soloSalida: true },
-      { patron: /rompemuelle/i, horaIngreso: '05:30 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '4A': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /santa\s*anita|municipalidad.*santa\s*anita/i, horaIngreso: '05:35 a.m.' },
-      { patron: /colectora/i, horaIngreso: '05:37 a.m.' },
-      { patron: /huarochir[ií]/i, horaIngreso: '05:39 a.m.' },
-      { patron: /la\s*cultura|cultura/i, horaIngreso: '05:41 a.m.' },
-      { patron: /puruchuco/i, horaIngreso: '05:50 a.m.' },
-      { patron: /berl[ií]n/i, horaIngreso: '05:53 a.m.', soloIngreso: true },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '4B': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /panader[ií]a\s*marcela|marcela/i, horaIngreso: '05:47 a.m.' },
-      { patron: /c[eé]sar\s*vallejo|vallejo/i, horaIngreso: '05:50 a.m.' },
-      { patron: /esperanza/i, horaIngreso: '05:52 a.m.' },
-      { patron: /la\s*cruz|cruz/i, horaIngreso: '05:54 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '5A': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /puente.*[aá]ngeles|[aá]ngeles/i, horaIngreso: '05:25 a.m.' },
-      { patron: /ramiro\s*prial[eé]|prial[eé]/i, horaIngreso: '05:28 a.m.' },
-      { patron: /girasoles/i, horaIngreso: '05:30 a.m.' },
-      { patron: /ñaña/i, horaIngreso: '05:38 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '5B': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /huayc[aá]n/i, horaIngreso: '05:35 a.m.' },
-      { patron: /horacio/i, horaIngreso: '05:40 a.m.' },
-      { patron: /gloria\s*grande/i, horaIngreso: '05:43 a.m.' },
-      { patron: /san\s*juan/i, horaIngreso: '05:45 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '5C': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /sta\.?\s*clara|santa\s*clara/i, horaIngreso: '05:55 a.m.' },
-      { patron: /estadio.*huachipa|estadio/i, horaIngreso: '06:05 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '6A': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /bay[oó]var/i, horaIngreso: '05:30 a.m.' },
-      { patron: /san\s*mart[ií]n/i, horaIngreso: '05:35 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '6B': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /canto\s*rey/i, horaIngreso: '05:37 a.m.' },
-      { patron: /san\s*carlos/i, horaIngreso: '05:45 a.m.' },
-      { patron: /17.*pr[oó]ceres|pr[oó]ceres/i, horaIngreso: '05:48 a.m.' },
-      { patron: /hacienda/i, horaIngreso: '05:50 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  },
-  '6C': {
-    salidaCD: '04:30 p.m.',
-    llegadaCD: '06:30 a.m.',
-    paraderos: [
-      { patron: /celima/i, horaIngreso: '05:45 a.m.' },
-      { patron: /puente\s*nuevo/i, horaIngreso: '05:55 a.m.' },
-      { patron: /pajat[eé]n/i, horaIngreso: '05:58 a.m.' },
-      { patron: /campoy/i, horaIngreso: '06:02 a.m.' },
-      { patron: /calle\s*8/i, horaIngreso: '06:06 a.m.' },
-      { patron: /huachipa|cd\s*central/i, horaIngreso: '06:30 a.m.', horaSalida: '04:30 p.m.' }
-    ]
-  }
-};
-
 function obtenerInfoHorarioParadero(rutaId, nombreParadero, rawHora) {
-  const normRuta = String(rutaId || '').trim().toUpperCase().replace(/^RUTA\s+/i, '');
-  const configRuta = HORARIOS_OFICIALES_RUTAS[normRuta];
-
-  // Si en la hoja de Google Sheet viene una hora explícita, la usamos preferencialmente
   let horaIngreso = rawHora ? String(rawHora).trim() : '';
+  if (horaIngreso === '-' || horaIngreso === '—') horaIngreso = '';
+
   let soloSalida = false;
   let soloIngreso = false;
   let horaSalida = '';
 
   const nombreNorm = String(nombreParadero || '').toLowerCase();
-  if (nombreNorm.includes('solo salida')) soloSalida = true;
-  if (nombreNorm.includes('solo ingreso')) soloIngreso = true;
+  if (/\bsolo\b[\w\s]*\bsalida\b/i.test(nombreNorm)) soloSalida = true;
+  if (/\bsolo\b[\w\s]*\bingreso\b/i.test(nombreNorm)) soloIngreso = true;
 
-  if (configRuta && configRuta.paraderos) {
-    for (const p of configRuta.paraderos) {
-      if (p.patron && p.patron.test(nombreNorm)) {
-        if (!horaIngreso && p.horaIngreso) horaIngreso = p.horaIngreso;
-        if (p.soloSalida) soloSalida = true;
-        if (p.soloIngreso) soloIngreso = true;
-        if (p.horaSalida) horaSalida = p.horaSalida;
-        break;
-      }
-    }
-  }
-
-  // Identificar si es el Centro de Distribución principal
-  const esCD = /huachipa|cd\s*huachipa|cd\s*central/i.test(nombreNorm);
-  if (esCD) {
-    if (!horaIngreso) horaIngreso = '06:30 a.m.';
-    if (!horaSalida) horaSalida = '04:30 p.m.';
-  }
+  // Identificar si es el punto de origen / Centro de Distribución principal
+  const esCD = /huachipa|cd\s*huachipa|cd\s*central|centro\s*de\s*distribuci[oó]n/i.test(nombreNorm);
 
   return { horaIngreso, horaSalida, soloSalida, soloIngreso, esCD };
 }
 
-// Matriz oficial de tarifas unitarias (TAX) y capacidades por tipo de unidad (BD BUSES)
-const TARIFARIO_BD_BUSES = {
-  'OMMNIBUS': { 'RUTA 1': 310, 'RUTA 2': 310, 'RUTA 3': 340, 'RUTA 4A': 350, 'RUTA 4B': 340, 'RUTA 5A': 370, 'RUTA 5B': 310, 'RUTA 5C': 290, 'RUTA 6A': 370, 'RUTA 6B': 360, 'RUTA 6C': 310, 'RUTA 7': 380, 'RUTA 8': 370, 'RUTA 9': 400, cap: 50 },
-  'BUS':      { 'RUTA 1': 310, 'RUTA 2': 310, 'RUTA 3': 340, 'RUTA 4A': 350, 'RUTA 4B': 340, 'RUTA 5A': 370, 'RUTA 5B': 310, 'RUTA 5C': 290, 'RUTA 6A': 370, 'RUTA 6B': 360, 'RUTA 6C': 310, 'RUTA 7': 380, 'RUTA 8': 370, 'RUTA 9': 400, cap: 50 },
-  'MINIBUS':  { 'RUTA 1': 290, 'RUTA 2': 290, 'RUTA 3': 330, 'RUTA 4A': 340, 'RUTA 4B': 330, 'RUTA 5A': 360, 'RUTA 5B': 300, 'RUTA 5C': 280, 'RUTA 6A': 360, 'RUTA 6B': 350, 'RUTA 6C': 300, 'RUTA 7': 370, 'RUTA 8': 360, 'RUTA 9': 380, cap: 30 },
-  'CUSTER':   { 'RUTA 1': 270, 'RUTA 2': 270, 'RUTA 3': 300, 'RUTA 4A': 310, 'RUTA 4B': 300, 'RUTA 5A': 350, 'RUTA 5B': 280, 'RUTA 5C': 250, 'RUTA 6A': 340, 'RUTA 6B': 340, 'RUTA 6C': 290, 'RUTA 7': 360, 'RUTA 8': 340, 'RUTA 9': 370, cap: 23 },
-  'SPRINTER': { 'RUTA 1': 250, 'RUTA 2': 250, 'RUTA 3': 280, 'RUTA 4A': 270, 'RUTA 4B': 260, 'RUTA 5A': 320, 'RUTA 5B': 250, 'RUTA 5C': 240, 'RUTA 6A': 330, 'RUTA 6B': 330, 'RUTA 6C': 280, 'RUTA 7': 340, 'RUTA 8': 300, 'RUTA 9': 350, cap: 16 },
-  'MINIVAN':  { 'RUTA 1': 230, 'RUTA 2': 230, 'RUTA 3': 250, 'RUTA 4A': 240, 'RUTA 4B': 230, 'RUTA 5A': 300, 'RUTA 5B': 240, 'RUTA 5C': 200, 'RUTA 6A': 300, 'RUTA 6B': 280, 'RUTA 6C': 250, 'RUTA 7': 330, 'RUTA 8': 290, 'RUTA 9': 320, cap: 10 },
-  'TAXI':     { 'RUTA 1': 120, 'RUTA 2': 120, 'RUTA 3': 180, 'RUTA 4A': 150, 'RUTA 4B': 140, 'RUTA 5A': 180, 'RUTA 5B': 140, 'RUTA 5C': 120, 'RUTA 6A': 180, 'RUTA 6B': 180, 'RUTA 6C': 180, 'RUTA 7': 220, 'RUTA 8': 220, 'RUTA 9': 300, cap: 4 }
+// Capacidades genéricas por tipo de unidad; las tarifas (TAX) se cargan desde BD BUSES
+const CAPACIDADES_DEFAULT_BUSES = {
+  'OMMNIBUS': { cap: 50 },
+  'BUS':      { cap: 50 },
+  'MINIBUS':  { cap: 30 },
+  'CUSTER':   { cap: 23 },
+  'SPRINTER': { cap: 16 },
+  'MINIVAN':  { cap: 10 },
+  'TAXI':     { cap: 4 }
 };
 
 function getTarifaBus(tipoBus, ruta) {
   if (!ruta || ruta === 'Desconocido' || ruta === 'DESCONOCIDO') return 0;
   const normTipo = String(tipoBus || 'BUS').trim().toUpperCase();
   const normRuta = String(ruta || '').trim().toUpperCase();
-  const tabla = (AppState && AppState.tarifarioBuses) ? AppState.tarifarioBuses : TARIFARIO_BD_BUSES;
+  const tabla = (AppState && AppState.tarifarioBuses) ? AppState.tarifarioBuses : CAPACIDADES_DEFAULT_BUSES;
   
   const matchTipo = Object.keys(tabla).find(k => k === normTipo || normTipo.includes(k) || k.includes(normTipo));
   if (matchTipo && tabla[matchTipo]) {
@@ -266,7 +125,7 @@ function getTarifaBus(tipoBus, ruta) {
 
 function getCapacidadBus(tipoBus) {
   const normTipo = String(tipoBus || 'BUS').trim().toUpperCase();
-  const tabla = (AppState && AppState.tarifarioBuses) ? AppState.tarifarioBuses : TARIFARIO_BD_BUSES;
+  const tabla = (AppState && AppState.tarifarioBuses) ? AppState.tarifarioBuses : CAPACIDADES_DEFAULT_BUSES;
   const matchTipo = Object.keys(tabla).find(k => k === normTipo || normTipo.includes(k) || k.includes(normTipo));
   if (matchTipo && tabla[matchTipo] && tabla[matchTipo].cap) {
     return tabla[matchTipo].cap;
@@ -1378,15 +1237,17 @@ async function loadAllSheets(sheetId) {
                           getTabName(['COORDENADAS']) || 
                           getTabName(['MIS RUTAS']) || 
                           (tabs.find(t => /^RUTAS?(\s+.*)?$/i.test(t.title.trim()))?.title);
+    const nameHorariosSupp = getTabName(['PARADEROS_VALIDOS']) || getTabName(['PARADEROS VALIDOS']) || getTabName(['BD PARADEROS']);
     const nameBdBuses = getTabName(['BD BUSES']) || getTabName(['BUSES']);
     const nameBdRutas = getTabName(['BD RUTAS']);
 
-    const [secos, ppa, frescos, registroDiario, paraderosSheet, bdBusesSheet, bdRutasSheet] = await Promise.all([
+    const [secos, ppa, frescos, registroDiario, paraderosSheet, horariosSuppSheet, bdBusesSheet, bdRutasSheet] = await Promise.all([
       nameSecos ? GoogleSheetsService.fetchSheetData(sheetId, nameSecos).catch(e => null) : Promise.resolve(null),
       namePpa ? GoogleSheetsService.fetchSheetData(sheetId, namePpa).catch(e => null) : Promise.resolve(null),
       nameFrescos ? GoogleSheetsService.fetchSheetData(sheetId, nameFrescos).catch(e => null) : Promise.resolve(null),
       nameRegistro ? GoogleSheetsService.fetchSheetData(sheetId, nameRegistro).catch(e => null) : Promise.resolve(null),
       nameParaderos ? GoogleSheetsService.fetchSheetData(sheetId, nameParaderos).catch(e => null) : Promise.resolve(null),
+      (nameHorariosSupp && nameHorariosSupp !== nameParaderos) ? GoogleSheetsService.fetchSheetData(sheetId, nameHorariosSupp).catch(e => null) : Promise.resolve(null),
       nameBdBuses ? GoogleSheetsService.fetchSheetData(sheetId, nameBdBuses).catch(e => null) : Promise.resolve(null),
       nameBdRutas ? GoogleSheetsService.fetchSheetData(sheetId, nameBdRutas).catch(e => null) : Promise.resolve(null)
     ]);
@@ -1406,9 +1267,9 @@ async function loadAllSheets(sheetId) {
       AppState.rutasOficiales = new Set(RUTAS_OFICIALES);
     }
 
-    // Cargar tarifario dinámico desde BD BUSES si está disponible
+    // Cargar tarifario dinámico desde BD BUSES (sin precios hardcodeados en el cliente)
+    AppState.tarifarioBuses = JSON.parse(JSON.stringify(CAPACIDADES_DEFAULT_BUSES));
     if (bdBusesSheet && bdBusesSheet.rows && bdBusesSheet.rows.length > 0) {
-      AppState.tarifarioBuses = JSON.parse(JSON.stringify(TARIFARIO_BD_BUSES));
       bdBusesSheet.rows.forEach(r => {
         const tipoBus = String(getRowVal(r, ['TIPO BUS', 'TIPO_BUS', 'VEHICULO', 'TIPO']) || '').trim().toUpperCase();
         if (!tipoBus) return;
@@ -1432,8 +1293,6 @@ async function loadAllSheets(sheetId) {
           }
         });
       });
-    } else {
-      AppState.tarifarioBuses = TARIFARIO_BD_BUSES;
     }
 
     if (!secos && !ppa && !frescos) {
@@ -1494,7 +1353,7 @@ async function loadAllSheets(sheetId) {
           }
         }
 
-        // Si distCdVal es 0 pero tenemos coordenadas válidas, calcular distancia radial al CD Huachipa (-11.997563, -76.900062)
+        // Si distCdVal es 0 pero tenemos coordenadas válidas, calcular distancia radial al Centro de Distribución (-11.997563, -76.900062)
         let finalDistCd = distCdVal;
         if (finalDistCd <= 0 && lat !== null && lng !== null) {
           finalDistCd = parseFloat(calcularDistanciaHaversineKm(lat, lng, -11.997563, -76.900062).toFixed(2));
@@ -1537,18 +1396,40 @@ async function loadAllSheets(sheetId) {
       if (emp.rawDni) AppState.employeeMap.set(String(emp.rawDni).trim().toUpperCase(), emp);
     });
 
+    // Mapa suplementario de horarios desde PARADEROS_VALIDOS o BD PARADEROS si la pestaña de rutas no incluye HORA
+    const horariosSuppMap = new Map();
+    const normStopKey = (str) => String(str || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\(.*?\)/g, '')
+      .replace(/paradero\s+/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    if (horariosSuppSheet && horariosSuppSheet.rows && horariosSuppSheet.rows.length > 0) {
+      horariosSuppSheet.rows.forEach(r => {
+        const rNom = String(getRowVal(r, ['RUTA', 'LINEA', 'COLUMN1', 'IDRUTA']) || '').trim().toUpperCase().replace(/^RUTA\s+/i, '').replace(/\.0+$/, '');
+        const pNom = String(getRowVal(r, ['PARADERO', 'NOMBRE', 'COLUMN3', 'NOMBRE PARADERO']) || '').trim();
+        const hVal = String(getRowVal(r, ['HORARIO', 'HORA', 'COLUMN2', 'HORA_PARADERO', 'HORA PARADERO']) || '').trim();
+        if (rNom && pNom && hVal && hVal !== '-' && hVal !== '—') {
+          horariosSuppMap.set(`${rNom}|${normStopKey(pNom)}`, hVal);
+        }
+      });
+    }
+
     // Procesar datos de paraderos directamente desde el Google Sheet (100% dinámico)
     if (paraderosSheet && paraderosSheet.rows && paraderosSheet.rows.length > 0) {
       const parsedParaderos = [];
       paraderosSheet.rows.forEach((row, idx) => {
-        let rutaVal = String(getRowVal(row, ['RUTA', 'LINEA', 'CODIGO RUTA', 'COD_RUTA', 'ID RUTA', 'ROUTE', 'RUTA PARADERO']) || '').trim();
-        rutaVal = rutaVal.replace(/^RUTA\s+/i, '');
+        let rutaVal = String(getRowVal(row, ['RUTA', 'LINEA', 'CODIGO RUTA', 'COD_RUTA', 'ID RUTA', 'ROUTE', 'RUTA PARADERO', 'COLUMN1']) || '').trim();
+        rutaVal = rutaVal.replace(/^RUTA\s+/i, '').replace(/\.0+$/, '');
         const rawLat = getRowVal(row, ['LAT', 'LATITUD', 'LATITUDE', 'Y', 'COORD Y', 'COORDENADA Y', 'LAT-TRAB', 'LAT PARADERO']);
         const rawLng = getRowVal(row, ['LNG', 'LON', 'LONG', 'LONGITUD', 'LONGITUDE', 'X', 'COORD X', 'COORDENADA X', 'LON-TRAB', 'LON PARADERO']);
         const rawSec = getRowVal(row, ['SECUENCIA', 'ORDEN', 'PASO', 'NUMERO', 'ITEM', 'SEQ', 'ORD', 'NRO', 'N°']);
-        const rawHora = getRowVal(row, ['HORA', 'HORARIO', 'TIME', 'HORA_PARADERO', 'HORA PARADERO', 'HORA ESTIMADA', 'HORA LLEGADA', 'HORA SALIDA']);
+        const rawHoraSheet = getRowVal(row, ['HORA', 'HORARIO', 'TIME', 'COLUMN2', 'HORA_PARADERO', 'HORA PARADERO', 'HORA ESTIMADA', 'HORA LLEGADA', 'HORA SALIDA']);
         const secuencia = parseInt(rawSec, 10) || (idx + 1);
-        const nombre = String(getRowVal(row, ['NOMBRE', 'PARADERO', 'NOMBRE PARADERO', 'NOMBRE_PARADERO', 'PARADERO MÁS CERCANO', 'PARADERO MAS CERCANO', 'DESCRIPCION', 'PUNTO', 'ESTACION', 'STOP_NAME', 'REFERENCIA']) || '').trim() || `Paradero ${secuencia}`;
+        const nombre = String(getRowVal(row, ['NOMBRE', 'PARADERO', 'COLUMN3', 'NOMBRE PARADERO', 'NOMBRE_PARADERO', 'PARADERO MÁS CERCANO', 'PARADERO MAS CERCANO', 'DESCRIPCION', 'PUNTO', 'ESTACION', 'STOP_NAME', 'REFERENCIA']) || '').trim() || `Paradero ${secuencia}`;
+        const rawHora = (rawHoraSheet && String(rawHoraSheet).trim() !== '-')
+          ? String(rawHoraSheet).trim()
+          : (horariosSuppMap.get(`${rutaVal.toUpperCase()}|${normStopKey(nombre)}`) || '');
 
         if (rutaVal && rawLat && rawLng) {
           const lat = parseFloat(String(rawLat).replace(',', '.'));
@@ -1560,7 +1441,7 @@ async function loadAllSheets(sheetId) {
               lng,
               nombre,
               secuencia,
-              rawHora: rawHora ? String(rawHora).trim() : ''
+              rawHora
             });
           }
         }
@@ -4880,6 +4761,16 @@ function initAiAssistant() {
     btnConfigGeminiLocal.addEventListener('click', window.configureLocalGeminiKey);
   }
 
+  const aiMessagesEl = document.getElementById('aiMessagesContainer');
+  if (aiMessagesEl) {
+    aiMessagesEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-config-gemini-local');
+      if (btn && window.configureLocalGeminiKey) {
+        window.configureLocalGeminiKey();
+      }
+    });
+  }
+
   // Abrir y Cerrar Drawer
   const openDrawer = () => {
     if (drawer) drawer.classList.add('open');
@@ -5173,7 +5064,7 @@ async function sendUserAiMessage() {
   // Obtener clave API (desde proxy /api/gemini en Vercel o localStorage del usuario; en GitHub Pages no se expone en el código)
   const apiKey = getGeminiApiKey();
   if (!apiKey && !hasGeminiProxy()) {
-    appendSystemChatMessage('⚠️ <b>Asistente IA sin clave local:</b><br>Por seguridad, GitHub Pages no expone claves privadas de Gemini en el código público.<br><button type="button" onclick="window.configureLocalGeminiKey && window.configureLocalGeminiKey()" style="margin-top:8px; background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.82rem;"><i class="fa-solid fa-key"></i> Ingresar mi clave Gemini local</button><br><small style="color:#94a3b8; display:block; margin-top:6px;">Si usas Vercel con <code>GEMINI_API_KEY</code> configurada en el servidor, funcionará automáticamente sin pedir clave aquí.</small>');
+    appendSystemChatMessage('⚠️ <b>Asistente IA sin clave local:</b><br>Por seguridad, GitHub Pages no expone claves privadas de Gemini en el código público.<br><button type="button" class="btn-config-gemini-local" style="margin-top:8px; background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.82rem;"><i class="fa-solid fa-key"></i> Ingresar mi clave Gemini local</button><br><small style="color:#94a3b8; display:block; margin-top:6px;">Si usas Vercel con <code>GEMINI_API_KEY</code> configurada en el servidor, funcionará automáticamente sin pedir clave aquí.</small>');
     return;
   }
 
@@ -5478,7 +5369,7 @@ function initHeatMapIfNeeded() {
   const container = document.getElementById('mapaCalorEmpleados');
   if (!container || typeof L === 'undefined') return;
 
-  // 1. Inicializar mapa Leaflet centrado en Lima Metropolitana y CD Huachipa
+  // 1. Inicializar mapa Leaflet centrado en Lima Metropolitana y Centro de Distribución
   const map = L.map('mapaCalorEmpleados', {
     center: [-12.015, -76.945],
     zoom: 11,

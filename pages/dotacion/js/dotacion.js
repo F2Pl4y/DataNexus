@@ -72,10 +72,17 @@ function initUIEvents() {
     }
   });
 
-  // 5. Cerrar modal de Drive
+  // 5. Cerrar modal de Drive y buscador
   document.getElementById('close-modal-btn').addEventListener('click', () => {
     document.getElementById('drive-modal').classList.add('hidden');
   });
+
+  const driveSearchInput = document.getElementById('drive-search-input');
+  if (driveSearchInput) {
+    driveSearchInput.addEventListener('input', (e) => {
+      if (typeof filterDriveList === 'function') filterDriveList(e.target.value);
+    });
+  }
 
   // Cerrar modal al hacer clic en el backdrop exterior
   document.getElementById('drive-modal').addEventListener('click', (e) => {

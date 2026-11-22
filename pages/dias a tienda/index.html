@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com https://unpkg.com https://accounts.google.com https://apis.google.com https://*.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.gstatic.com https://api.mapbox.com https://*.mapbox.com https://router.project-osrm.org https://*.basemaps.cartocdn.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com https://unpkg.com https://accounts.google.com https://apis.google.com https://*.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.gstatic.com https://api.mapbox.com https://*.mapbox.com https://router.project-osrm.org https://*.basemaps.cartocdn.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
   <title>DataNexus - Días a Tienda (DTI) Evolutivos</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏱️</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -49,7 +49,7 @@
 
     <!-- Tarjeta de Carga de Archivo -->
     <section class="upload-card">
-      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="drop-zone" id="dropZone">
         <i class="fa-solid fa-file-excel drop-zone-icon"></i>
         <div class="drop-zone-title">Selecciona o arrastra tu archivo de trabajo Excel</div>
         <div class="drop-zone-subtitle">
@@ -203,10 +203,10 @@
               <p>Tendencia cronológica semanal por Centro y Zona contra línea objetivo</p>
             </div>
             <div class="chart-actions">
-              <button class="btn-chart-action" onclick="copyChartImage('chartDtiEvolutivo')">
+              <button class="btn-chart-action" data-copy-chart="chartDtiEvolutivo">
                 <i class="fa-regular fa-copy"></i> Copiar
               </button>
-              <button class="btn-chart-action" onclick="downloadChartImage('chartDtiEvolutivo', 'DTI_Evolutivo_Semanal')">
+              <button class="btn-chart-action" data-download-chart="chartDtiEvolutivo" data-download-name="DTI_Evolutivo_Semanal">
                 <i class="fa-solid fa-download"></i> PNG
               </button>
             </div>
@@ -224,10 +224,10 @@
               <p>Desempeño semanal frente al mismo periodo del año anterior</p>
             </div>
             <div class="chart-actions">
-              <button class="btn-chart-action" onclick="copyChartImage('chartDtiComparativo')">
+              <button class="btn-chart-action" data-copy-chart="chartDtiComparativo">
                 <i class="fa-regular fa-copy"></i> Copiar
               </button>
-              <button class="btn-chart-action" onclick="downloadChartImage('chartDtiComparativo', 'DTI_Comparativo_Anual')">
+              <button class="btn-chart-action" data-download-chart="chartDtiComparativo" data-download-name="DTI_Comparativo_Anual">
                 <i class="fa-solid fa-download"></i> PNG
               </button>
             </div>
@@ -245,10 +245,10 @@
               <p>Días de Operación Interna (Picking -> PSL) y Operación Salida (PSL -> Cargas)</p>
             </div>
             <div class="chart-actions">
-              <button class="btn-chart-action" onclick="copyChartImage('chartLeadTime')">
+              <button class="btn-chart-action" data-copy-chart="chartLeadTime">
                 <i class="fa-regular fa-copy"></i> Copiar
               </button>
-              <button class="btn-chart-action" onclick="downloadChartImage('chartLeadTime', 'DTI_Desglose_Operativo')">
+              <button class="btn-chart-action" data-download-chart="chartLeadTime" data-download-name="DTI_Desglose_Operativo">
                 <i class="fa-solid fa-download"></i> PNG
               </button>
             </div>
@@ -266,10 +266,10 @@
               <p>Seguimiento simultáneo de ambas zonas operativas</p>
             </div>
             <div class="chart-actions">
-              <button class="btn-chart-action" onclick="copyChartImage('chartLocalProvincia')">
+              <button class="btn-chart-action" data-copy-chart="chartLocalProvincia">
                 <i class="fa-regular fa-copy"></i> Copiar
               </button>
-              <button class="btn-chart-action" onclick="downloadChartImage('chartLocalProvincia', 'DTI_Local_vs_Provincia')">
+              <button class="btn-chart-action" data-download-chart="chartLocalProvincia" data-download-name="DTI_Local_vs_Provincia">
                 <i class="fa-solid fa-download"></i> PNG
               </button>
             </div>

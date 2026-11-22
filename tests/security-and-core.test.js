@@ -145,6 +145,11 @@ test('Seguridad en HTML y configuración pública: CSP, Referrer-Policy, SRI y s
   for (const file of htmlFiles) {
     const content = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(content, /http-equiv="Content-Security-Policy"/i, `${file} debe tener meta CSP`);
+    const scriptSrcMatch = content.match(/script-src\s+([^;"]+)/i);
+    assert.ok(scriptSrcMatch, `${file} debe declarar script-src en su CSP`);
+    assert.ok(!scriptSrcMatch[1].includes("'unsafe-inline'"), `${file} no debe permitir 'unsafe-inline' en script-src`);
+    assert.doesNotMatch(content, /<script(?![^>]*\bsrc=)[^>]*>/i, `${file} no debe tener etiquetas <script> inline`);
+    assert.doesNotMatch(content, /\bon(?:click|change|input|keydown|keyup|keypress|submit)\s*=/i, `${file} no debe tener handlers inline on*=`);
     assert.match(content, /name="referrer"\s+content="strict-origin-when-cross-origin"/i, `${file} debe tener Referrer-Policy`);
     assert.doesNotMatch(content, /<(?:script|link|img|iframe|a)\b[^>]+(?:src|href)=["']http:\/\//i, `${file} no debe cargar recursos http:// inseguros`);
 
@@ -155,6 +160,25 @@ test('Seguridad en HTML y configuración pública: CSP, Referrer-Policy, SRI y s
       assert.match(match[0], /\bcrossorigin="anonymous"/, `Falta crossorigin="anonymous" en ${file}: ${match[0]}`);
     }
   }
+
+  const uiJsFiles = [
+    'js/app.js',
+    'js/pivot-engine.js',
+    'pages/Throughput/app.js',
+    'pages/ant-inv/app.js',
+    'pages/dias a tienda/app.js',
+    'pages/dotacion/js/dotacion.js',
+    'pages/movilidad/js/movilidad.js',
+    'pages/lector/lector.js'
+  ];
+  for (const jsFile of uiJsFiles) {
+    const jsContent = fs.readFileSync(path.join(ROOT, jsFile), 'utf8');
+    assert.doesNotMatch(jsContent, /<[a-z][^>]*\bon(?:click|change|input|keydown|keyup|submit)\s*=/i, `${jsFile} no debe generar atributos inline on*=`);
+  }
+
+  const movilidadJs = fs.readFileSync(path.join(ROOT, 'pages/movilidad/js/movilidad.js'), 'utf8');
+  assert.ok(!movilidadJs.includes('TARIFARIO_BD_BUSES'), 'movilidad.js no debe exponer tarifas hardcodeadas');
+  assert.ok(!movilidadJs.includes('HORARIOS_OFICIALES_RUTAS'), 'movilidad.js no debe exponer horarios hardcodeados');
 
   const configContent = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
   assert.match(configContent, /GEMINI_API_KEY:\s*'TU_GEMINI_API_KEY_AQUI'/);

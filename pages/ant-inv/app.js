@@ -202,7 +202,51 @@ function findHeaderRowInMatrix(matrix) {
 
 document.addEventListener('DOMContentLoaded', () => {
   setupDropzone();
+  setupUIControls();
 });
+
+function setupUIControls() {
+  const fileInput = document.getElementById('excelFileInput');
+  if (fileInput) {
+    fileInput.addEventListener('change', handleExcelUpload);
+  }
+
+  document.addEventListener('click', (e) => {
+    const sampleBtn = e.target.closest('[data-action="load-sample"]');
+    if (sampleBtn) {
+      e.stopPropagation();
+      loadSampleData();
+      return;
+    }
+    const triggerEl = e.target.closest('[data-action="trigger-excel"]');
+    if (triggerEl && fileInput) {
+      fileInput.click();
+      return;
+    }
+    const whseBtn = e.target.closest('[data-whse]');
+    if (whseBtn) {
+      switchWarehouse(whseBtn.dataset.whse);
+      return;
+    }
+    const slideBtn = e.target.closest('[data-slide]');
+    if (slideBtn) {
+      switchSlide(parseInt(slideBtn.dataset.slide, 10));
+      return;
+    }
+    const modeBtn = e.target.closest('[data-chart-mode]');
+    if (modeBtn) {
+      setChartS1Mode(modeBtn.dataset.chartMode);
+      return;
+    }
+    if (e.target.closest('[data-action="copy-slide"]')) {
+      copyCurrentSlideToClipboard();
+      return;
+    }
+    if (e.target.closest('[data-action="download-slide"]')) {
+      downloadCurrentSlide();
+    }
+  });
+}
 
 function setupDropzone() {
   const dropzone = document.getElementById('dropzoneBox');

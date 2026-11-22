@@ -414,14 +414,14 @@ const PivotEngine = {
           <div class="th-content">
             <span>${safeH}</span>
             <div class="th-actions">
-              <select class="format-select" data-col-name="${safeH}" onchange="window.updateColumnFormat('${safeId}', this.getAttribute('data-col-name'), this.value)" title="Formato de celda">
+              <select class="format-select" data-table-id="${safeId}" data-col-name="${safeH}" title="Formato de celda">
                 <option value="auto" ${currentFormat === 'auto' ? 'selected' : ''}>Auto</option>
                 <option value="text" ${currentFormat === 'text' ? 'selected' : ''}>Texto</option>
                 <option value="num0" ${currentFormat === 'num0' ? 'selected' : ''}>Num (0 dec)</option>
                 <option value="num2" ${currentFormat === 'num2' ? 'selected' : ''}>Num (2 dec)</option>
                 <option value="date" ${currentFormat === 'date' ? 'selected' : ''}>Fecha</option>
               </select>
-              <button class="btn-col-copy" data-col-name="${safeH}" title="Copiar columna ${safeH}" onclick="PivotEngine.handleCopyColumnClick('${safeId}', ${colIdx}, this.getAttribute('data-col-name'))">
+              <button class="btn-col-copy" data-table-id="${safeId}" data-col-index="${colIdx}" data-col-name="${safeH}" title="Copiar columna ${safeH}">
                 <i class="fa-solid fa-copy"></i>
               </button>
             </div>

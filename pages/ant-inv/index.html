@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com https://unpkg.com https://accounts.google.com https://apis.google.com https://*.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.gstatic.com https://api.mapbox.com https://*.mapbox.com https://router.project-osrm.org https://*.basemaps.cartocdn.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com https://unpkg.com https://accounts.google.com https://apis.google.com https://*.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.gstatic.com https://api.mapbox.com https://*.mapbox.com https://router.project-osrm.org https://*.basemaps.cartocdn.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -704,20 +704,20 @@
         </div>
       </div>
 
-      <button onclick="document.getElementById('excelFileInput').click()" class="btn btn-primary btn-sm">
+      <button type="button" data-action="trigger-excel" class="btn btn-primary btn-sm">
         <i class="fa-solid fa-file-excel"></i> Cargar Excel
       </button>
     </div>
   </header>
 
   <!-- Input oculto para carga de archivos Excel -->
-  <input type="file" id="excelFileInput" accept=".xlsx, .xlsm, .xls, .xlsb" style="display: none;" onchange="handleExcelUpload(event)">
+  <input type="file" id="excelFileInput" accept=".xlsx, .xlsm, .xls, .xlsb" style="display: none;">
 
   <!-- SECCIÓN DE CARGA DE ARCHIVO EXCEL -->
   <div class="upload-section-card">
     
     <!-- Zona de arrastre y selección de archivo -->
-    <div id="dropzoneBox" class="dropzone-box" onclick="document.getElementById('excelFileInput').click()">
+    <div id="dropzoneBox" class="dropzone-box" data-action="trigger-excel">
       <div class="dropzone-icon">
         <i class="fa-solid fa-cloud-arrow-up"></i>
       </div>
@@ -737,7 +737,7 @@
       </div>
 
       <div style="margin-top: 12px;">
-        <button type="button" onclick="event.stopPropagation(); loadSampleData();" class="btn btn-sm btn-outline-secondary" style="font-size: 0.82rem;">
+        <button type="button" id="btnLoadSampleData" data-action="load-sample" class="btn btn-sm btn-outline-secondary" style="font-size: 0.82rem;">
           <i class="fa-solid fa-eye"></i> O ver con datos demostrativos (Semana 37)
         </button>
       </div>
@@ -758,7 +758,7 @@
         <span class="badge badge-success" style="font-size: 0.80rem; padding: 4px 10px; background: #dcfce7; color: #15803d; border-radius: 7px; font-weight: 800;">
           <i class="fa-solid fa-circle-check"></i> Alimentado desde Excel
         </span>
-        <button onclick="document.getElementById('excelFileInput').click()" class="btn btn-sm btn-outline-primary" style="font-size: 0.82rem;">
+        <button type="button" data-action="trigger-excel" class="btn btn-sm btn-outline-primary" style="font-size: 0.82rem;">
           <i class="fa-solid fa-arrows-rotate"></i> Cambiar Archivo
         </button>
       </div>
@@ -772,10 +772,10 @@
       <!-- Selector de WHSE -->
       <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Centro Distribución:</span>
       <div class="pill-group">
-        <button id="btnWhseSecos" onclick="switchWarehouse('655')" class="pill-btn active">
+        <button id="btnWhseSecos" data-whse="655" class="pill-btn active">
           <i class="fa-solid fa-warehouse"></i> CD Secos (WHSE 655)
         </button>
-        <button id="btnWhseFrescos" onclick="switchWarehouse('676')" class="pill-btn pill-frescos">
+        <button id="btnWhseFrescos" data-whse="676" class="pill-btn pill-frescos">
           <i class="fa-solid fa-snowflake"></i> CD Frescos (WHSE 676)
         </button>
       </div>
@@ -785,22 +785,22 @@
     <div class="flex items-center gap-3">
       <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Lámina PPT:</span>
       <div class="pill-group">
-        <button id="tabBtnSlide1" onclick="switchSlide(1)" class="pill-btn active">
+        <button id="tabBtnSlide1" data-slide="1" class="pill-btn active">
           1. Visión Global & Top SKUs
         </button>
-        <button id="tabBtnSlide2" onclick="switchSlide(2)" class="pill-btn">
+        <button id="tabBtnSlide2" data-slide="2" class="pill-btn">
           2. Zonas (RCK vs RHB)
         </button>
-        <button id="tabBtnSlide3" onclick="switchSlide(3)" class="pill-btn">
+        <button id="tabBtnSlide3" data-slide="3" class="pill-btn">
           3. Evolutivo & Ubicaciones
         </button>
       </div>
 
       <!-- BOTÓN DE COPIA 16:9 AL PORTAPAPELES -->
-      <button id="btnCapturePpt" onclick="copyCurrentSlideToClipboard()" class="btn-capture-ppt" title="Copia directamente la diapositiva en proporción 16:9 (1920x1080) al portapapeles para pegar con Ctrl + V en PowerPoint">
+      <button id="btnCapturePpt" data-action="copy-slide" class="btn-capture-ppt" title="Copia directamente la diapositiva en proporción 16:9 (1920x1080) al portapapeles para pegar con Ctrl + V en PowerPoint">
         <i class="fa-solid fa-camera"></i> Copiar Diapositiva 16:9 (PPT)
       </button>
-      <button onclick="downloadCurrentSlide()" class="btn btn-sm btn-outline-secondary" title="Descargar como archivo PNG de alta resolución (1920x1080)">
+      <button id="btnDownloadSlide" data-action="download-slide" class="btn btn-sm btn-outline-secondary" title="Descargar como archivo PNG de alta resolución (1920x1080)">
         <i class="fa-solid fa-download"></i> Descargar PNG
       </button>
     </div>
@@ -882,8 +882,8 @@
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
             <h3 id="chartS1Title" style="font-size: 0.94rem; font-weight: 800; margin: 0; color: #0f172a;">Distribución de Bultos por Antigüedad</h3>
             <div style="display: flex; gap: 4px; background: #e2e8f0; padding: 2px; border-radius: 7px;">
-              <button id="btnChartModeBultos" onclick="setChartS1Mode('bultos')" style="border: none; background: #ffffff; color: #1e3a8a; font-size: 0.73rem; font-weight: 800; padding: 3px 9px; border-radius: 5px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08); transition: all 0.2s ease;">📦 Bultos (% Bultos)</button>
-              <button id="btnChartModeCosto" onclick="setChartS1Mode('costo')" style="border: none; background: transparent; color: #64748b; font-size: 0.73rem; font-weight: 700; padding: 3px 9px; border-radius: 5px; cursor: pointer; transition: all 0.2s ease;">💰 Costos (S/)</button>
+              <button id="btnChartModeBultos" data-chart-mode="bultos" style="border: none; background: #ffffff; color: #1e3a8a; font-size: 0.73rem; font-weight: 800; padding: 3px 9px; border-radius: 5px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08); transition: all 0.2s ease;">📦 Bultos (% Bultos)</button>
+              <button id="btnChartModeCosto" data-chart-mode="costo" style="border: none; background: transparent; color: #64748b; font-size: 0.73rem; font-weight: 700; padding: 3px 9px; border-radius: 5px; cursor: pointer; transition: all 0.2s ease;">💰 Costos (S/)</button>
             </div>
           </div>
           

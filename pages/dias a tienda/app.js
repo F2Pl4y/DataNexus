@@ -54,6 +54,23 @@ function setupEventListeners() {
   document.getElementById('btnResetFilters').addEventListener('click', resetFilters);
   document.getElementById('btnLoadDemo').addEventListener('click', loadDemoData);
   document.getElementById('btnExportCsv').addEventListener('click', exportSummaryToCsv);
+
+  const dropZoneEl = document.getElementById('dropZone');
+  if (dropZoneEl && fileInput) {
+    dropZoneEl.addEventListener('click', () => fileInput.click());
+  }
+
+  document.addEventListener('click', (e) => {
+    const copyBtn = e.target.closest('[data-copy-chart]');
+    if (copyBtn) {
+      copyChartImage(copyBtn.dataset.copyChart);
+      return;
+    }
+    const dlBtn = e.target.closest('[data-download-chart]');
+    if (dlBtn) {
+      downloadChartImage(dlBtn.dataset.downloadChart, dlBtn.dataset.downloadName);
+    }
+  });
 }
 
 function setupDragAndDrop() {

@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com https://unpkg.com https://accounts.google.com https://apis.google.com https://*.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.gstatic.com https://api.mapbox.com https://*.mapbox.com https://router.project-osrm.org https://*.basemaps.cartocdn.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com https://unpkg.com https://accounts.google.com https://apis.google.com https://*.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://*.gstatic.com https://api.mapbox.com https://*.mapbox.com https://router.project-osrm.org https://*.basemaps.cartocdn.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
   <title>DataNexus - Throughput Secos y Frescos</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1754,7 +1754,7 @@
           <button id="close-modal-btn" class="btn-close">&times;</button>
         </div>
         <div class="modal-body">
-          <input type="text" id="drive-search-input" class="form-control" style="margin-bottom: 12px;" placeholder="🔍 Buscar archivo por nombre..." oninput="filterDriveList(this.value)">
+          <input type="text" id="drive-search-input" class="form-control" style="margin-bottom: 12px;" placeholder="🔍 Buscar archivo por nombre...">
           <div id="drive-loading" class="hidden text-center"><i class="fa-solid fa-spinner fa-spin"></i> Cargando archivos...</div>
           <ul id="drive-file-list" class="file-list"></ul>
           <div id="drive-empty" class="hidden text-muted text-center mt-3">No se encontraron hojas de cálculo recientes.</div>
@@ -2079,16 +2079,16 @@
           <span>Copiar Gráficos como Imagen para PowerPoint (PPT):</span>
         </div>
         <div class="copy-buttons-group">
-          <button id="btnCopySlideTriple" class="btn-copy btn-copy-slide-triple" onclick="window.copyTripleChartsSlideImage()" title="Copiar los 3 gráficos juntos con dimensiones idénticas para diapositiva de PowerPoint">
+          <button id="btnCopySlideTriple" class="btn-copy btn-copy-slide-triple" data-tp-action="copy-triple" title="Copiar los 3 gráficos juntos con dimensiones idénticas para diapositiva de PowerPoint">
             <i class="fa-solid fa-file-powerpoint"></i> Copiar Diapositiva 3 en 1 (Slide Completo para PPT)
           </button>
-          <button id="btnCopyRecibo" class="btn-copy btn-copy-recibo" onclick="window.copyThroughputChartImage('recibo')" title="Copiar gráfico de Recibo como imagen para pegar en PowerPoint">
+          <button id="btnCopyRecibo" class="btn-copy btn-copy-recibo" data-tp-copy-chart="recibo" title="Copiar gráfico de Recibo como imagen para pegar en PowerPoint">
             <i class="fa-solid fa-camera"></i> Copiar Recibo
           </button>
-          <button id="btnCopyDespacho" class="btn-copy btn-copy-despacho" onclick="window.copyThroughputChartImage('despacho')" title="Copiar gráfico de Despacho como imagen para pegar en PowerPoint">
+          <button id="btnCopyDespacho" class="btn-copy btn-copy-despacho" data-tp-copy-chart="despacho" title="Copiar gráfico de Despacho como imagen para pegar en PowerPoint">
             <i class="fa-solid fa-camera"></i> Copiar Despacho
           </button>
-          <button id="btnCopyInventario" class="btn-copy btn-copy-inventario" onclick="window.copyThroughputChartImage('inventario')" title="Copiar gráfico de Inventario como imagen para pegar en PowerPoint">
+          <button id="btnCopyInventario" class="btn-copy btn-copy-inventario" data-tp-copy-chart="inventario" title="Copiar gráfico de Inventario como imagen para pegar en PowerPoint">
             <i class="fa-solid fa-camera"></i> Copiar Inventario
           </button>
         </div>
@@ -2124,7 +2124,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span id="badgeSecosRecibo" class="chart-badge-pill">Cajas / Semana</span>
-                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('recibo')" title="Copiar gráfico de Recibo como imagen para PowerPoint">
+                <button class="btn-chart-copy" data-tp-copy-chart="recibo" title="Copiar gráfico de Recibo como imagen para PowerPoint">
                   <i class="fa-solid fa-camera"></i> Copiar Imagen
                 </button>
               </div>
@@ -2139,7 +2139,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span id="badgeSecosDespacho" class="chart-badge-pill">Cajas / Semana</span>
-                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('despacho')" title="Copiar gráfico de Despacho como imagen para PowerPoint">
+                <button class="btn-chart-copy" data-tp-copy-chart="despacho" title="Copiar gráfico de Despacho como imagen para PowerPoint">
                   <i class="fa-solid fa-camera"></i> Copiar Imagen
                 </button>
               </div>
@@ -2154,7 +2154,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span id="badgeSecosInventario" class="chart-badge-pill">Stock en Cajas</span>
-                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('inventario')" title="Copiar gráfico de Inventario como imagen para PowerPoint">
+                <button class="btn-chart-copy" data-tp-copy-chart="inventario" title="Copiar gráfico de Inventario como imagen para PowerPoint">
                   <i class="fa-solid fa-camera"></i> Copiar Imagen
                 </button>
               </div>
@@ -2200,7 +2200,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span id="badgeFrescosRecibo" class="chart-badge-pill">Cajas / Semana</span>
-                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('recibo')" title="Copiar gráfico de Recibo como imagen para PowerPoint">
+                <button class="btn-chart-copy" data-tp-copy-chart="recibo" title="Copiar gráfico de Recibo como imagen para PowerPoint">
                   <i class="fa-solid fa-camera"></i> Copiar Imagen
                 </button>
               </div>
@@ -2215,7 +2215,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span id="badgeFrescosDespacho" class="chart-badge-pill">Cajas / Semana</span>
-                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('despacho')" title="Copiar gráfico de Despacho como imagen para PowerPoint">
+                <button class="btn-chart-copy" data-tp-copy-chart="despacho" title="Copiar gráfico de Despacho como imagen para PowerPoint">
                   <i class="fa-solid fa-camera"></i> Copiar Imagen
                 </button>
               </div>
@@ -2230,7 +2230,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span id="badgeFrescosInventario" class="chart-badge-pill">Stock en Cajas</span>
-                <button class="btn-chart-copy" onclick="window.copyThroughputChartImage('inventario')" title="Copiar gráfico de Inventario como imagen para PowerPoint">
+                <button class="btn-chart-copy" data-tp-copy-chart="inventario" title="Copiar gráfico de Inventario como imagen para PowerPoint">
                   <i class="fa-solid fa-camera"></i> Copiar Imagen
                 </button>
               </div>

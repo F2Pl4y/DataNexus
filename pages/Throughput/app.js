@@ -71,6 +71,48 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.id === 'drive-modal') e.target.classList.add('hidden');
   });
 
+  document.getElementById('drive-search-input')?.addEventListener('input', (e) => {
+    if (typeof window.filterDriveList === 'function') window.filterDriveList(e.target.value);
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tp-action], [data-tp-copy-chart], [data-tp-div-view], [data-tp-copy-card], [data-tp-copy-glossary]');
+    if (!btn) return;
+    if (btn.dataset.tpCopyChart) {
+      window.copyThroughputChartImage(btn.dataset.tpCopyChart);
+      return;
+    }
+    if (btn.dataset.tpDivView) {
+      window.setDivTableProcessView(btn.dataset.prefix, btn.dataset.tpDivView);
+      return;
+    }
+    if (btn.dataset.tpCopyCard) {
+      window.copyDivisionProcessCardImage(btn.dataset.tpCopyCard, btn.dataset.cardTitle);
+      return;
+    }
+    if (btn.dataset.tpCopyGlossary) {
+      window.copyGlossaryImage(btn.dataset.tpCopyGlossary);
+      return;
+    }
+    switch (btn.dataset.tpAction) {
+      case 'copy-triple':
+        window.copyTripleChartsSlideImage();
+        break;
+      case 'clear-div-filter':
+        window.clearDivisionFilter();
+        break;
+      case 'copy-corp-slide':
+        window.copyCorporateSummarySlideImage(btn.dataset.prefix);
+        break;
+      case 'copy-corp-table':
+        window.copyCorporateTableImage(btn.dataset.prefix);
+        break;
+      case 'copy-active-div-table':
+        window.copyActiveDivisionTableImage(btn.dataset.prefix);
+        break;
+    }
+  });
+
   async function openDriveModal() {
     const modal = document.getElementById('drive-modal');
     const loading = document.getElementById('drive-loading');
@@ -1141,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', () => {
               ${pillsHtml}
             </div>
           </div>
-          <button class="btn-clear-banner" onclick="window.clearDivisionFilter()">
+          <button class="btn-clear-banner" data-tp-action="clear-div-filter">
             <i class="fa-solid fa-xmark"></i> Quitar filtros (${countDivs})
           </button>
         `;
@@ -1984,10 +2026,10 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>Detalle Corporativo Semanal (${currentYear} vs ${prevYear}) · Últimas ${weekNumbers.length} Semanas Cerradas${divTableTag}</span>
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <button class="btn-table-copy" onclick="window.copyCorporateSummarySlideImage('${prefix}')" title="Copiar diapositiva ejecutiva completa (Título + KPIs + Tabla) para PowerPoint" style="background: linear-gradient(135deg, #1d4ed8, #2563eb); color:#ffffff; border-color:#1e40af; font-weight:700; box-shadow: 0 2px 6px rgba(37,99,235,0.25);">
+          <button class="btn-table-copy" data-tp-action="copy-corp-slide" data-prefix="${escapeHtml(prefix)}" title="Copiar diapositiva ejecutiva completa (Título + KPIs + Tabla) para PowerPoint" style="background: linear-gradient(135deg, #1d4ed8, #2563eb); color:#ffffff; border-color:#1e40af; font-weight:700; box-shadow: 0 2px 6px rgba(37,99,235,0.25);">
             <i class="fa-solid fa-file-powerpoint"></i> Copiar Diapositiva (Título + KPIs + Tabla)
           </button>
-          <button class="btn-table-copy" onclick="window.copyCorporateTableImage('${prefix}')" title="Copiar solo la tabla desde 'Área' como imagen para PowerPoint">
+          <button class="btn-table-copy" data-tp-action="copy-corp-table" data-prefix="${escapeHtml(prefix)}" title="Copiar solo la tabla desde 'Área' como imagen para PowerPoint">
             <i class="fa-solid fa-table"></i> Copiar Solo Tabla (desde Área)
           </button>
           <span class="table-scroll-hint">
@@ -2132,20 +2174,20 @@ document.addEventListener('DOMContentLoaded', () => {
           ${isFiltering ? `<span style="font-size:0.75rem; background:#eff6ff; color:#1d4ed8; padding:2px 8px; border-radius:12px; border:1px solid #bfdbfe; font-weight:700;">Filtrando ${divCodes.length} div.</span>` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <button class="btn-table-copy" onclick="window.copyActiveDivisionTableImage('${prefix}')" title="Copiar tabla de división como imagen para PowerPoint">
+          <button class="btn-table-copy" data-tp-action="copy-active-div-table" data-prefix="${escapeHtml(prefix)}" title="Copiar tabla de división como imagen para PowerPoint">
             <i class="fa-solid fa-camera"></i> ${currentView === 'all' ? 'Diapositiva 3 Tablas (16:9)' : 'Copiar Imagen'}
           </button>
           <div class="division-view-pills">
-            <button class="division-view-pill ${currentView === 'all' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'all')">
+            <button class="division-view-pill ${currentView === 'all' ? 'active' : ''}" data-tp-div-view="all" data-prefix="${escapeHtml(prefix)}">
               <i class="fa-solid fa-table-columns"></i> Todos (3 en 1)
             </button>
-            <button class="division-view-pill ${currentView === 'recibo' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'recibo')">
+            <button class="division-view-pill ${currentView === 'recibo' ? 'active' : ''}" data-tp-div-view="recibo" data-prefix="${escapeHtml(prefix)}">
               📦 Recibo
             </button>
-            <button class="division-view-pill ${currentView === 'despacho' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'despacho')">
+            <button class="division-view-pill ${currentView === 'despacho' ? 'active' : ''}" data-tp-div-view="despacho" data-prefix="${escapeHtml(prefix)}">
               🚛 Despacho
             </button>
-            <button class="division-view-pill ${currentView === 'inventario' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'inventario')">
+            <button class="division-view-pill ${currentView === 'inventario' ? 'active' : ''}" data-tp-div-view="inventario" data-prefix="${escapeHtml(prefix)}">
               📊 Inventario
             </button>
           </div>
@@ -2174,7 +2216,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <span style="font-size:0.72rem; font-weight:700; opacity:0.85;">
                 Cajas / Semana
               </span>
-              <button class="btn-chart-copy" onclick="window.copyDivisionProcessCardImage('${cardId}', '${proc.title} ${currentYear}')" title="Copiar esta tabla de ${proc.title} como imagen para PowerPoint">
+              <button class="btn-chart-copy" data-tp-copy-card="${escapeHtml(cardId)}" data-card-title="${escapeHtml(`${proc.title} ${currentYear}`)}" title="Copiar esta tabla de ${escapeHtml(proc.title)} como imagen para PowerPoint">
                 <i class="fa-solid fa-camera"></i> Copiar Imagen
               </button>
             </div>
@@ -2326,7 +2368,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <i class="fa-solid fa-book-bookmark text-primary"></i>
             <span>Glosario Divisiones</span>
           </div>
-          <button class="btn-table-copy" onclick="window.copyGlossaryImage('${prefix}')" title="Copiar Glosario como imagen para PowerPoint" style="padding:4px 9px; font-size:0.75rem;">
+          <button class="btn-table-copy" data-tp-copy-glossary="${escapeHtml(prefix)}" title="Copiar Glosario como imagen para PowerPoint" style="padding:4px 9px; font-size:0.75rem;">
             <i class="fa-solid fa-camera"></i> Copiar
           </button>
         </div>
@@ -2409,7 +2451,7 @@ document.addEventListener('DOMContentLoaded', () => {
               ${pillsHtml}
             </div>
           </div>
-          <button class="btn-clear-banner" onclick="window.clearDivisionFilter()">
+          <button class="btn-clear-banner" data-tp-action="clear-div-filter">
             <i class="fa-solid fa-xmark"></i> Quitar filtros (${countDivs})
           </button>
         `;
@@ -2786,10 +2828,10 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>Detalle Corporativo Mensual (${currentYear} vs ${prevYear}) · ${monthsToRender.length} Meses Seleccionados${divTableTag}</span>
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <button class="btn-table-copy" onclick="window.copyCorporateSummarySlideImage('${prefix}')" title="Copiar diapositiva ejecutiva completa (Título + KPIs + Tabla) para PowerPoint" style="background: linear-gradient(135deg, #1d4ed8, #2563eb); color:#ffffff; border-color:#1e40af; font-weight:700; box-shadow: 0 2px 6px rgba(37,99,235,0.25);">
+          <button class="btn-table-copy" data-tp-action="copy-corp-slide" data-prefix="${escapeHtml(prefix)}" title="Copiar diapositiva ejecutiva completa (Título + KPIs + Tabla) para PowerPoint" style="background: linear-gradient(135deg, #1d4ed8, #2563eb); color:#ffffff; border-color:#1e40af; font-weight:700; box-shadow: 0 2px 6px rgba(37,99,235,0.25);">
             <i class="fa-solid fa-file-powerpoint"></i> Copiar Diapositiva (Título + KPIs + Tabla)
           </button>
-          <button class="btn-table-copy" onclick="window.copyCorporateTableImage('${prefix}')" title="Copiar solo la tabla desde 'Área' como imagen para PowerPoint">
+          <button class="btn-table-copy" data-tp-action="copy-corp-table" data-prefix="${escapeHtml(prefix)}" title="Copiar solo la tabla desde 'Área' como imagen para PowerPoint">
             <i class="fa-solid fa-table"></i> Copiar Solo Tabla (desde Área)
           </button>
           <span class="table-scroll-hint">
@@ -2923,20 +2965,20 @@ document.addEventListener('DOMContentLoaded', () => {
           ${isFiltering ? `<span style="font-size:0.75rem; background:#eff6ff; color:#1d4ed8; padding:2px 8px; border-radius:12px; border:1px solid #bfdbfe; font-weight:700;">Filtrando ${divCodes.length} div.</span>` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <button class="btn-table-copy" onclick="window.copyActiveDivisionTableImage('${prefix}')" title="Copiar tabla de división como imagen para PowerPoint">
+          <button class="btn-table-copy" data-tp-action="copy-active-div-table" data-prefix="${escapeHtml(prefix)}" title="Copiar tabla de división como imagen para PowerPoint">
             <i class="fa-solid fa-camera"></i> ${currentView === 'all' ? 'Diapositiva 3 Tablas (16:9)' : 'Copiar Imagen'}
           </button>
           <div class="division-view-pills">
-            <button class="division-view-pill ${currentView === 'all' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'all')">
+            <button class="division-view-pill ${currentView === 'all' ? 'active' : ''}" data-tp-div-view="all" data-prefix="${escapeHtml(prefix)}">
               <i class="fa-solid fa-table-columns"></i> Todos (3 en 1)
             </button>
-            <button class="division-view-pill ${currentView === 'recibo' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'recibo')">
+            <button class="division-view-pill ${currentView === 'recibo' ? 'active' : ''}" data-tp-div-view="recibo" data-prefix="${escapeHtml(prefix)}">
               📦 Recibo
             </button>
-            <button class="division-view-pill ${currentView === 'despacho' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'despacho')">
+            <button class="division-view-pill ${currentView === 'despacho' ? 'active' : ''}" data-tp-div-view="despacho" data-prefix="${escapeHtml(prefix)}">
               🚛 Despacho
             </button>
-            <button class="division-view-pill ${currentView === 'inventario' ? 'active' : ''}" onclick="window.setDivTableProcessView('${prefix}', 'inventario')">
+            <button class="division-view-pill ${currentView === 'inventario' ? 'active' : ''}" data-tp-div-view="inventario" data-prefix="${escapeHtml(prefix)}">
               📊 Inventario
             </button>
           </div>
@@ -2966,7 +3008,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <span style="font-size:0.72rem; font-weight:700; opacity:0.85;">
                 ${proc.badge}
               </span>
-              <button class="btn-chart-copy" onclick="window.copyDivisionProcessCardImage('${cardId}', '${proc.title} ${currentYear}')" title="Copiar esta tabla de ${proc.title} como imagen para PowerPoint">
+              <button class="btn-chart-copy" data-tp-copy-card="${escapeHtml(cardId)}" data-card-title="${escapeHtml(`${proc.title} ${currentYear}`)}" title="Copiar esta tabla de ${escapeHtml(proc.title)} como imagen para PowerPoint">
                 <i class="fa-solid fa-camera"></i> Copiar Imagen
               </button>
             </div>
@@ -3120,7 +3162,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <i class="fa-solid fa-book-bookmark text-primary"></i>
             <span>Glosario Divisiones</span>
           </div>
-          <button class="btn-table-copy" onclick="window.copyGlossaryImage('${prefix}')" title="Copiar Glosario como imagen para PowerPoint" style="padding:4px 9px; font-size:0.75rem;">
+          <button class="btn-table-copy" data-tp-copy-glossary="${escapeHtml(prefix)}" title="Copiar Glosario como imagen para PowerPoint" style="padding:4px 9px; font-size:0.75rem;">
             <i class="fa-solid fa-camera"></i> Copiar
           </button>
         </div>

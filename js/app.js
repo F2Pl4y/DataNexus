@@ -92,6 +92,90 @@ function initUIEvents() {
     document.getElementById('drive-modal').classList.add('hidden');
   });
 
+  const driveSearchInput = document.getElementById('drive-search-input');
+  if (driveSearchInput) {
+    driveSearchInput.addEventListener('input', (e) => {
+      if (typeof filterDriveList === 'function') filterDriveList(e.target.value);
+    });
+  }
+
+  // Delegación de eventos para tarjetas de tablas dinámicas/planas (sin handlers inline)
+  const tablesContainer = document.getElementById('tablesContainer');
+  if (tablesContainer) {
+    tablesContainer.addEventListener('click', (e) => {
+      const colCopyBtn = e.target.closest('.btn-col-copy');
+      if (colCopyBtn) {
+        const tId = colCopyBtn.dataset.tableId;
+        const cIdx = parseInt(colCopyBtn.dataset.colIndex, 10);
+        const cName = colCopyBtn.dataset.colName;
+        if (tId) PivotEngine.handleCopyColumnClick(tId, cIdx, cName);
+        return;
+      }
+
+      const actionEl = e.target.closest('[data-action]');
+      if (!actionEl) return;
+      const card = actionEl.closest('.table-card');
+      const tableId = actionEl.dataset.tableId || (card ? card.dataset.tableId : '');
+      if (!tableId) return;
+
+      switch (actionEl.dataset.action) {
+        case 'copy-entire-table':
+          copyEntireTable(tableId);
+          break;
+        case 'toggle-collapse-table':
+          toggleCollapseTable(tableId);
+          break;
+        case 'toggle-collapse-data':
+          toggleCollapseData(tableId);
+          break;
+        case 'delete-table':
+          deleteTable(tableId);
+          break;
+        case 'add-filter-row':
+          addFilterRow(tableId);
+          break;
+        case 'remove-filter-row':
+          removeFilterRow(tableId, parseInt(actionEl.dataset.filterIndex, 10));
+          break;
+        case 'apply-filters':
+          applyTableFilters(tableId);
+          break;
+      }
+    });
+
+    tablesContainer.addEventListener('change', (e) => {
+      const target = e.target;
+      if (target.classList.contains('format-select')) {
+        const tId = target.dataset.tableId;
+        const cName = target.dataset.colName;
+        if (tId && cName) window.updateColumnFormat(tId, cName, target.value);
+        return;
+      }
+
+      const card = target.closest('.table-card');
+      const tableId = card ? card.dataset.tableId : '';
+      if (!tableId) return;
+
+      if (target.dataset.dim) {
+        handlePivotDimensionChange(tableId, target.dataset.dim, target.value, target.checked);
+      } else if (target.dataset.flatCol) {
+        handleFlatColumnToggle(tableId, target.value, target.checked);
+      } else if (target.dataset.field) {
+        updateTableField(tableId, target.dataset.field, target.value);
+      }
+    });
+
+    tablesContainer.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      if (!e.target.dataset.enterAction) return;
+      const card = e.target.closest('.table-card');
+      const tableId = card ? card.dataset.tableId : '';
+      if (tableId && e.target.dataset.enterAction === 'apply-filters') {
+        applyTableFilters(tableId);
+      }
+    });
+  }
+
   // Cerrar modal haciendo clic afuera
   document.getElementById('drive-modal').addEventListener('click', (e) => {
     if (e.target.id === 'drive-modal') {
@@ -555,6 +639,7 @@ function createTableCardElement(config, index) {
   const card = document.createElement('div');
   card.className = 'table-card';
   card.id = `card_${safeId}`;
+  card.dataset.tableId = safeId;
 
   const headers = AppState.dataset.headers || [];
 
@@ -570,22 +655,22 @@ function createTableCardElement(config, index) {
           id="title_${safeId}"
           type="text" 
           class="table-title-input" 
+          data-field="title"
           value="${escapeHtml(config.title)}" 
           placeholder="Nombre de la tabla..."
-          onchange="updateTableField('${safeId}', 'title', this.value)"
         >
       </div>
       <div class="table-actions">
-        <button class="btn btn-outline-primary btn-sm" onclick="copyEntireTable('${safeId}')" title="Copiar toda la tabla con formato Excel/Sheets">
+        <button class="btn btn-outline-primary btn-sm" data-action="copy-entire-table" title="Copiar toda la tabla con formato Excel/Sheets">
           <i class="fa-solid fa-copy"></i> Copiar Tabla
         </button>
-        <button class="btn btn-icon btn-sm" onclick="toggleCollapseTable('${safeId}')" title="Mostrar / Ocultar Filtros">
+        <button class="btn btn-icon btn-sm" data-action="toggle-collapse-table" title="Mostrar / Ocultar Filtros">
           <i class="fa-solid fa-filter"></i> ${config.isCollapsed ? '<i class="fa-solid fa-chevron-down" style="font-size: 0.6em; vertical-align: top;"></i>' : '<i class="fa-solid fa-chevron-up" style="font-size: 0.6em; vertical-align: top;"></i>'}
         </button>
-        <button class="btn btn-icon btn-sm" onclick="toggleCollapseData('${safeId}')" title="Mostrar / Ocultar Tabla de Datos">
+        <button class="btn btn-icon btn-sm" data-action="toggle-collapse-data" title="Mostrar / Ocultar Tabla de Datos">
           <i class="fa-solid fa-table"></i> ${config.isDataCollapsed ? '<i class="fa-solid fa-chevron-down" style="font-size: 0.6em; vertical-align: top;"></i>' : '<i class="fa-solid fa-chevron-up" style="font-size: 0.6em; vertical-align: top;"></i>'}
         </button>
-        <button class="btn btn-icon btn-sm text-danger" onclick="deleteTable('${safeId}')" title="Eliminar tabla">
+        <button class="btn btn-icon btn-sm text-danger" data-action="delete-table" title="Eliminar tabla">
           <i class="fa-solid fa-trash"></i>
         </button>
       </div>
@@ -605,7 +690,7 @@ function createTableCardElement(config, index) {
           <div class="select-multi-box">
             ${headers.map(h => `
               <label class="checkbox-item">
-                <input type="checkbox" value="${escapeHtml(h)}" ${(config.rowFields || []).includes(h) ? 'checked' : ''} onchange="handlePivotDimensionChange('${safeId}', 'rowFields', this.value, this.checked)">
+                <input type="checkbox" data-dim="rowFields" value="${escapeHtml(h)}" ${(config.rowFields || []).includes(h) ? 'checked' : ''}>
                 ${escapeHtml(h)}
               </label>
             `).join('')}
@@ -618,7 +703,7 @@ function createTableCardElement(config, index) {
           <div class="select-multi-box">
             ${headers.map(h => `
               <label class="checkbox-item">
-                <input type="checkbox" value="${escapeHtml(h)}" ${(config.colFields || []).includes(h) ? 'checked' : ''} onchange="handlePivotDimensionChange('${safeId}', 'colFields', this.value, this.checked)">
+                <input type="checkbox" data-dim="colFields" value="${escapeHtml(h)}" ${(config.colFields || []).includes(h) ? 'checked' : ''}>
                 ${escapeHtml(h)}
               </label>
             `).join('')}
@@ -628,7 +713,7 @@ function createTableCardElement(config, index) {
         <!-- Campo de Valor / Métrica -->
         <div class="config-field">
           <label><i class="fa-solid fa-calculator"></i> Campo de Valor:</label>
-          <select class="form-control" onchange="updateTableField('${safeId}', 'valField', this.value)">
+          <select class="form-control" data-field="valField">
             ${headers.map(h => `<option value="${escapeHtml(h)}" ${config.valField === h ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')}
           </select>
         </div>
@@ -636,7 +721,7 @@ function createTableCardElement(config, index) {
         <!-- Función de Agregación -->
         <div class="config-field">
           <label><i class="fa-solid fa-function"></i> Agregación:</label>
-          <select class="form-control" onchange="updateTableField('${safeId}', 'aggFunc', this.value)">
+          <select class="form-control" data-field="aggFunc">
             <option value="SUM" ${config.aggFunc === 'SUM' ? 'selected' : ''}>Suma (SUM)</option>
             <option value="COUNT" ${config.aggFunc === 'COUNT' ? 'selected' : ''}>Conteo (COUNT)</option>
             <option value="AVG" ${config.aggFunc === 'AVG' ? 'selected' : ''}>Promedio (AVG)</option>
@@ -652,9 +737,9 @@ function createTableCardElement(config, index) {
             id="search_${safeId}"
             type="text" 
             class="form-control" 
+            data-enter-action="apply-filters"
             placeholder="Filtrar resultados..." 
             value="${escapeHtml(config.globalSearch || '')}"
-            onkeydown="if(event.key === 'Enter') applyTableFilters('${safeId}')"
           >
         </div>
       </div>
@@ -669,7 +754,7 @@ function createTableCardElement(config, index) {
           <div class="select-multi-box" style="display: flex; flex-direction: row; flex-wrap: wrap; gap: 0.75rem;">
             ${headers.map(h => `
               <label class="checkbox-item">
-                <input type="checkbox" value="${escapeHtml(h)}" ${(config.selectedColumns || []).includes(h) ? 'checked' : ''} onchange="handleFlatColumnToggle('${safeId}', this.value, this.checked)">
+                <input type="checkbox" data-flat-col="true" value="${escapeHtml(h)}" ${(config.selectedColumns || []).includes(h) ? 'checked' : ''}>
                 ${escapeHtml(h)}
               </label>
             `).join('')}
@@ -680,11 +765,11 @@ function createTableCardElement(config, index) {
         <div class="config-field">
           <label><i class="fa-solid fa-arrow-down-a-z"></i> Ordenar por:</label>
           <div style="display: flex; gap: 0.35rem;">
-            <select class="form-control" onchange="updateTableField('${safeId}', 'sortBy', this.value)">
+            <select class="form-control" data-field="sortBy">
               <option value="">(Sin orden)</option>
               ${headers.map(h => `<option value="${escapeHtml(h)}" ${config.sortBy === h ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')}
             </select>
-            <select class="form-control" style="width: 80px;" onchange="updateTableField('${safeId}', 'sortOrder', this.value)">
+            <select class="form-control" style="width: 80px;" data-field="sortOrder">
               <option value="asc" ${config.sortOrder === 'asc' ? 'selected' : ''}>ASC</option>
               <option value="desc" ${config.sortOrder === 'desc' ? 'selected' : ''}>DESC</option>
             </select>
@@ -698,9 +783,9 @@ function createTableCardElement(config, index) {
             id="search_${safeId}"
             type="text" 
             class="form-control" 
+            data-enter-action="apply-filters"
             placeholder="Filtrar resultados..." 
             value="${escapeHtml(config.globalSearch || '')}"
-            onkeydown="if(event.key === 'Enter') applyTableFilters('${safeId}')"
           >
         </div>
       </div>
@@ -713,7 +798,7 @@ function createTableCardElement(config, index) {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
         <label><i class="fa-solid fa-filter"></i> Filtros Específicos (Datos Base):</label>
         <div>
-          <button class="btn btn-outline-primary btn-xs" onclick="addFilterRow('${safeId}')">+ Añadir Filtro</button>
+          <button class="btn btn-outline-primary btn-xs" data-action="add-filter-row">+ Añadir Filtro</button>
         </div>
       </div>
 
@@ -737,18 +822,18 @@ function createTableCardElement(config, index) {
               id="filterVal_${safeId}_${fIdx}"
               type="text" 
               class="form-control" 
+              data-enter-action="apply-filters"
               placeholder="Valor..." 
               value="${escapeHtml(f.value || '')}"
-              onkeydown="if(event.key === 'Enter') applyTableFilters('${safeId}')"
             >
-            <button class="btn btn-xs btn-outline-danger" onclick="removeFilterRow('${safeId}', ${fIdx})" title="Quitar filtro">
+            <button class="btn btn-xs btn-outline-danger" data-action="remove-filter-row" data-filter-index="${fIdx}" title="Quitar filtro">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
         `).join('')}
       </div>
       <div style="margin-top: 0.8rem; text-align: right;">
-        <button class="btn btn-primary btn-sm" onclick="applyTableFilters('${safeId}')">
+        <button class="btn btn-primary btn-sm" data-action="apply-filters">
           <i class="fa-solid fa-play"></i> Actualizar Filtros
         </button>
       </div>

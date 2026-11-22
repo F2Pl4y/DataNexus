@@ -2648,24 +2648,12 @@ function initRoutesMap() {
     wheelPxPerZoomLevel: 100
   });
 
-  // Capa base oscura en alta definición (Mapbox si hay token configurado, o CartoDB Dark Matter gratuito como fallback)
-  const mbToken = getMapboxToken();
-  if (mbToken) {
-    L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${encodeURIComponent(mbToken)}`, {
-      attribution: '© Mapbox © OpenStreetMap',
-      tileSize: 512,
-      zoomOffset: -1,
-      maxZoom: 19
-    }).addTo(map);
-  } else {
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© OpenStreetMap contributors © CARTO',
-      maxZoom: 19,
-      keepBuffer: 6,
-      updateWhenZooming: false,
-      updateWhenIdle: true
-    }).addTo(map);
-  }
+  // Capa base oscura en alta definición (Mapbox con fallback automático a CartoDB Dark si falla o no hay token)
+  attachDarkBaseTileLayer(map, {
+    keepBuffer: 6,
+    updateWhenZooming: false,
+    updateWhenIdle: true
+  });
 
   map.on('click', function (e) {
     if (e.originalEvent.target.id === 'mapaRutas' || e.originalEvent.target.classList.contains('leaflet-container')) {
@@ -2679,6 +2667,121 @@ function initRoutesMap() {
   });
 
   AppState.mapInstance = map;
+}
+
+function attachDarkBaseTileLayer(mapInstance, extraOptions = {}) {
+  const createCartoLayer = () => L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 19,
+    ...extraOptions
+  });
+
+  const mbToken = getMapboxToken();
+  if (!mbToken) {
+    createCartoLayer().addTo(mapInstance);
+    return;
+  }
+
+  let errorCount = 0;
+  let switchedToFallback = false;
+  const mbLayer = L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${encodeURIComponent(mbToken)}`, {
+    attribution: '© Mapbox © OpenStreetMap',
+    tileSize: 512,
+    zoomOffset: -1,
+    maxZoom: 19,
+    ...extraOptions
+  });
+
+  mbLayer.on('tileerror', () => {
+    errorCount++;
+    if (!switchedToFallback && errorCount >= 3) {
+      switchedToFallback = true;
+      console.warn('Mapbox tiles no disponibles; cambiando automáticamente a CartoDB Dark gratuito.');
+      if (mapInstance.hasLayer(mbLayer)) mapInstance.removeLayer(mbLayer);
+      createCartoLayer().addTo(mapInstance);
+    }
+  });
+
+  mbLayer.addTo(mapInstance);
+}
+
+const ROUTE_CACHE_STORAGE_KEY = 'DATANEXUS_ROUTE_CACHE_V1';
+const ROUTE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+
+function getCachedRouteDirections(cacheKey) {
+  if (AppState.routeDirectionsCache && AppState.routeDirectionsCache[cacheKey]) {
+    return AppState.routeDirectionsCache[cacheKey];
+  }
+  try {
+    const raw = localStorage.getItem(ROUTE_CACHE_STORAGE_KEY);
+    if (!raw) return null;
+    const store = JSON.parse(raw);
+    const entry = store && store[cacheKey];
+    if (entry && entry.data && (Date.now() - (entry.ts || 0) < ROUTE_CACHE_TTL_MS)) {
+      if (!AppState.routeDirectionsCache) AppState.routeDirectionsCache = {};
+      AppState.routeDirectionsCache[cacheKey] = entry.data;
+      return entry.data;
+    }
+  } catch (e) {
+    // Ignorar errores de almacenamiento local
+  }
+  return null;
+}
+
+function saveCachedRouteDirections(cacheKey, rutaData) {
+  if (!AppState.routeDirectionsCache) AppState.routeDirectionsCache = {};
+  AppState.routeDirectionsCache[cacheKey] = rutaData;
+  try {
+    const raw = localStorage.getItem(ROUTE_CACHE_STORAGE_KEY);
+    const store = raw ? JSON.parse(raw) : {};
+    store[cacheKey] = { ts: Date.now(), data: rutaData };
+    // Mantener máximo 40 rutas recientes en caché persistente
+    const keys = Object.keys(store);
+    if (keys.length > 40) {
+      keys.sort((a, b) => (store[a].ts || 0) - (store[b].ts || 0));
+      keys.slice(0, keys.length - 40).forEach(k => delete store[k]);
+    }
+    localStorage.setItem(ROUTE_CACHE_STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {
+    // Ignorar si localStorage está lleno o restringido
+  }
+}
+
+async function fetchRouteWithFallback(stringCoordenadas, routeIdx) {
+  const mbToken = getMapboxToken();
+  if (mbToken) {
+    try {
+      const mbUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${stringCoordenadas}?geometries=geojson&overview=full&access_token=${encodeURIComponent(mbToken)}`;
+      const res = await fetch(mbUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          return data.routes[0];
+        }
+      }
+    } catch (err) {
+      console.warn('Mapbox Directions falló, intentando respaldo OSRM:', err);
+    }
+  }
+
+  // Respaldo automático con OSRM espaciando peticiones para evitar saturación (HTTP 429)
+  try {
+    const delayMs = (routeIdx % 15) * 180;
+    if (delayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${stringCoordenadas}?geometries=geojson&overview=full`;
+    const res = await fetch(osrmUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        return data.routes[0];
+      }
+    }
+  } catch (err) {
+    console.warn('OSRM Directions también falló:', err);
+  }
+  return null;
 }
 
 function dibujarRutasEnMapa() {
@@ -2843,8 +2946,8 @@ function dibujarRutasEnMapa() {
 
   if (contenedorLista) contenedorLista.innerHTML = '';
 
-  // Solicitar trazado a Mapbox o reutilizar Caché
-  sortedRutas.forEach(nombreRuta => {
+  // Solicitar trazado (Mapbox -> respaldo OSRM -> directo) o reutilizar Caché
+  sortedRutas.forEach((nombreRuta, routeIdx) => {
     const puntos = rutasAgrupadas[nombreRuta];
     if (puntos.length < 2) return;
 
@@ -3060,23 +3163,15 @@ function dibujarRutasEnMapa() {
     const stringCoordenadas = puntos.map(p => `${p.lng},${p.lat}`).join(';');
     const cacheKey = nombreRuta + '_' + sentido + '_full_' + stringCoordenadas;
 
-    // Si ya lo tenemos en caché, dibujar al instante (0ms)
-    if (AppState.routeDirectionsCache && AppState.routeDirectionsCache[cacheKey]) {
-      aplicarTrazadoGeoJSON(AppState.routeDirectionsCache[cacheKey]);
+    // Si ya lo tenemos en caché (memoria o localStorage), dibujar al instante (0ms sin consumir cuota)
+    const cachedRoute = getCachedRouteDirections(cacheKey);
+    if (cachedRoute) {
+      aplicarTrazadoGeoJSON(cachedRoute);
     } else {
-      const mbToken = getMapboxToken();
-      const directionsUrl = mbToken
-        ? `https://api.mapbox.com/directions/v5/mapbox/driving/${stringCoordenadas}?geometries=geojson&overview=full&access_token=${encodeURIComponent(mbToken)}`
-        : `https://router.project-osrm.org/route/v1/driving/${stringCoordenadas}?geometries=geojson&overview=full`;
-
-      fetch(directionsUrl)
-        .then(r => r.json())
-        .then(data => {
-          if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-            const rutaData = data.routes[0];
-            if (AppState.routeDirectionsCache) {
-              AppState.routeDirectionsCache[cacheKey] = rutaData;
-            }
+      fetchRouteWithFallback(stringCoordenadas, routeIdx)
+        .then(rutaData => {
+          if (rutaData) {
+            saveCachedRouteDirections(cacheKey, rutaData);
             aplicarTrazadoGeoJSON(rutaData);
           } else {
             aplicarTrazadoDirecto();
@@ -5380,21 +5475,8 @@ function initHeatMapIfNeeded() {
     wheelPxPerZoomLevel: 100
   });
 
-  // 2. Capa base oscura en alta definición (Mapbox Dark v11 con fallback a CartoDB Dark Matter gratuito)
-  const mbToken = getMapboxToken();
-  if (mbToken) {
-    L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${encodeURIComponent(mbToken)}`, {
-      attribution: '© Mapbox © OpenStreetMap',
-      tileSize: 512,
-      zoomOffset: -1,
-      maxZoom: 19
-    }).addTo(map);
-  } else {
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© OpenStreetMap contributors © CARTO',
-      maxZoom: 19
-    }).addTo(map);
-  }
+  // 2. Capa base oscura en alta definición (Mapbox Dark v11 con fallback automático a CartoDB Dark Matter)
+  attachDarkBaseTileLayer(map);
 
   // 3. Marcador permanente del Centro de Distribución (Hub Central Logístico)
   const cdLat = -11.997563;

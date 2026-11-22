@@ -1,10 +1,11 @@
-# Archivos Excel, CSV y documentos de texto locales o sensibles (PII / Corporativos)
+# Archivos Excel, CSV, documentos de texto y guías locales (no subir a GitHub)
 *.xlsx
 *.xls
 *.xlsm
 *.xlsb
 *.csv
 *.txt
+GUIA_MIGRACION_GOOGLE_PICKER.md
 
 # Prototipo antiguo con coordenadas fijas de paraderos
 pages/movilidad/mis rutas/

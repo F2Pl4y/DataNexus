@@ -5,6 +5,7 @@
 *.xlsb
 *.csv
 *.txt
+GUIA_MIGRACION_GOOGLE_PICKER.md
 pages/movilidad/mis rutas/
 trash/
 **/trash/

@@ -2041,11 +2041,10 @@ async function copyCurrentSlideToClipboard() {
         try {
           const item = new ClipboardItem({ 'image/png': blob });
           await navigator.clipboard.write([item]);
-          showToast(`✅ ¡Lámina ${currentSlide} copiada! Lista para pegar en PowerPoint (Ctrl + V)`, 'success', 5000);
-          showCopySuccessModal(lastCapturedDataUrl);
+          showToast(`✅ ¡Lámina ${currentSlide} copiada al portapapeles! Lista para pegar en PowerPoint (Ctrl + V)`, 'success', 4000);
         } catch (clipErr) {
           console.warn('Acceso directo al portapapeles restringido:', clipErr);
-          // Si el navegador bloquea la escritura automática, mostrar modal con botón explícito
+          // Solo si el navegador bloquea la escritura directa, mostrar modal de respaldo
           showCopySuccessModal(lastCapturedDataUrl);
         }
       } else {

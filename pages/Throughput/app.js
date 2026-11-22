@@ -65,42 +65,107 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   async function openDriveModal() {
-    document.getElementById('drive-modal').classList.remove('hidden');
-    const fileList = document.getElementById('drive-file-list');
+    const modal = document.getElementById('drive-modal');
     const loading = document.getElementById('drive-loading');
     const emptyMsg = document.getElementById('drive-empty');
-    fileList.innerHTML = ''; loading.classList.remove('hidden'); emptyMsg.classList.add('hidden');
+    const fileList = document.getElementById('drive-file-list');
+    const searchInput = document.getElementById('drive-search-input');
+
+    modal.classList.remove('hidden');
+    loading.classList.remove('hidden');
+    fileList.innerHTML = '';
+    emptyMsg.classList.add('hidden');
+    if (searchInput) searchInput.value = '';
+
     const files = await window.GoogleSheetsService.fetchRecentSpreadsheets();
     loading.classList.add('hidden');
-    if (!files || files.length === 0) { emptyMsg.classList.remove('hidden'); return; }
-    window._driveFiles = files;
-    renderDriveFiles(files);
-  }
 
-  function renderDriveFiles(files) {
-    const fileList = document.getElementById('drive-file-list');
-    fileList.innerHTML = '';
+    if (!files || files.length === 0) {
+      emptyMsg.classList.remove('hidden');
+      return;
+    }
+
+    const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
     files.forEach(file => {
       const li = document.createElement('li');
-      li.className = 'file-item'; li.style.cursor = 'pointer'; li.style.padding = '10px'; li.style.borderBottom = '1px solid #eee';
-      const iconEl = document.createElement('i');
-      iconEl.className = 'fa-solid fa-file-excel text-success';
-      const spanEl = document.createElement('span');
-      spanEl.style.cssText = 'margin-left:8px; font-weight:600;';
-      spanEl.textContent = file.name || '';
-      li.appendChild(iconEl);
-      li.appendChild(spanEl);
+      li.className = 'file-list-item';
+      li.dataset.filename = (file.name || '').toLowerCase();
+
+      const date = new Date(file.modifiedTime).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+
+      let isShared = true;
+      let ownerName = 'Desconocido';
+
+      if (file.owners && file.owners.length > 0) {
+        if (file.owners[0].me) {
+          isShared = false;
+          ownerName = 'Tú';
+        } else {
+          ownerName = file.owners[0].displayName || 'Compartido';
+        }
+      }
+
+      const isExcel = file.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || (file.name || '').toLowerCase().endsWith('.xlsx');
+      const badgeClass = isShared ? 'badge-shared' : 'badge-owned';
+      const badgeText = isShared ? 'Compartido' : 'Mío';
+      const iconClass = isExcel ? 'fa-triangle-exclamation text-danger' : (isShared ? 'fa-file-excel file-icon-shared' : 'fa-file-excel file-icon-owned');
+      const ownerIcon = isShared ? 'fa-users' : 'fa-user';
+
+      const excelWarningHtml = isExcel ? `<span class="file-badge custom-tooltip-icon" style="background: #fee2e2; color: #ef4444; border: 1px solid #fecaca; margin-right: 5px;" data-tooltip="Ábrelo en Drive y dale a 'Guardar como Hoja de cálculo de Google'">⚠️ Inválido (.xlsx)</span>` : '';
+
+      const safeFileName = escapeHtml(file.name);
+      const safeOwnerName = escapeHtml(ownerName);
+
+      li.innerHTML = `
+        <div class="file-item-icon">
+          <i class="fa-solid ${iconClass}"></i>
+        </div>
+        <div class="file-item-content">
+          <div class="file-item-title" title="${safeFileName}">${safeFileName}</div>
+          <div class="file-item-meta">
+            <span class="owner"><i class="fa-solid ${ownerIcon}"></i> ${safeOwnerName}</span>
+            <span class="date"><i class="fa-regular fa-clock"></i> ${date}</span>
+          </div>
+        </div>
+        <div class="file-item-action">
+          ${excelWarningHtml}
+          <span class="file-badge ${badgeClass}">${badgeText}</span>
+        </div>
+      `;
+
       li.addEventListener('click', () => {
         document.getElementById('sheetUrlInput').value = file.id;
-        document.getElementById('drive-modal').classList.add('hidden');
+        modal.classList.add('hidden');
         document.getElementById('btnFetchData').click();
       });
+
       fileList.appendChild(li);
     });
   }
-  window.filterDriveList = function (text) {
-    if (!window._driveFiles) return;
-    renderDriveFiles(window._driveFiles.filter(f => f.name.toLowerCase().includes(text.toLowerCase())));
+
+  window.filterDriveList = function (searchTerm) {
+    const term = (searchTerm || '').toLowerCase();
+    const items = document.querySelectorAll('#drive-file-list .file-list-item');
+    let hasVisible = false;
+
+    items.forEach(item => {
+      if ((item.dataset.filename || '').includes(term)) {
+        item.style.display = 'flex';
+        hasVisible = true;
+      } else {
+        item.style.display = 'none';
+      }
+    });
+
+    const empty = document.getElementById('drive-empty');
+    if (empty) {
+      if (hasVisible) {
+        empty.classList.add('hidden');
+      } else {
+        empty.classList.remove('hidden');
+      }
+    }
   };
 
   // ══════════════════════════════════════════════

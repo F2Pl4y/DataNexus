@@ -1014,6 +1014,7 @@ body {
 .modal-body {
   padding: 1rem;
   overflow-y: auto;
+  overflow-x: hidden;
   flex-grow: 1;
 }
 
@@ -1222,4 +1223,10 @@ body {
 .custom-tooltip-icon:hover::before {
   opacity: 1;
   visibility: visible;
+}
+
+.file-item-action .custom-tooltip-icon::after {
+  left: auto;
+  right: 0;
+  transform: none;
 }

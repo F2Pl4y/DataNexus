@@ -10,6 +10,15 @@ let rawWorkbook = null;
 let currentDataset = [];
 let chartInstances = {};
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // Normalizador de texto para mapeo inteligente de encabezados
 function normalizeHeader(str) {
   if (!str) return '';
@@ -694,10 +703,10 @@ function renderSummaryTable(weeklyList, metaVal) {
     const cumple = w.dti <= metaVal;
 
     tr.innerHTML = `
-      <td><strong>Semana ${w.semana}</strong></td>
-      <td>${w.anio}</td>
+      <td><strong>Semana ${escapeHtml(w.semana)}</strong></td>
+      <td>${escapeHtml(w.anio)}</td>
       <td>${w.cd === '655' ? 'CD 655 (Secos)' : 'CD 676 (Frescos)'}</td>
-      <td>${w.zona}</td>
+      <td>${escapeHtml(w.zona)}</td>
       <td class="text-right">${Math.round(w.totalCajas).toLocaleString()}</td>
       <td class="text-right">${w.opeInterna.toFixed(2)} d</td>
       <td class="text-right">${w.opeSalida.toFixed(2)} d</td>
@@ -740,14 +749,18 @@ function downloadChartImage(canvasId, fileName) {
   link.click();
 }
 
-// Exportar resumen a CSV
+// Exportar resumen a CSV (con protección contra CSV Formula Injection y limpieza de Blob URL)
 function exportSummaryToCsv() {
   const table = document.getElementById('summaryTable');
   let csv = [];
   for (let row of table.rows) {
     let cols = [];
     for (let cell of row.cells) {
-      cols.push('"' + cell.innerText.replace(/"/g, '""').trim() + '"');
+      let text = cell.innerText.trim();
+      if (/^[=+\-@\t\r]/.test(text)) {
+        text = `'${text}`;
+      }
+      cols.push('"' + text.replace(/"/g, '""') + '"');
     }
     csv.push(cols.join(';'));
   }
@@ -758,6 +771,7 @@ function exportSummaryToCsv() {
   a.href = url;
   a.download = 'Resumen_Semanas_DTI.csv';
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function resetFilters() {

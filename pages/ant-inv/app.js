@@ -39,6 +39,15 @@ function safeFixed(val, decimals = 1, suffix = '') {
   return Number(val).toFixed(decimals) + suffix;
 }
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function parseNum(v) {
   if (typeof v === 'number') return isNaN(v) ? 0 : v;
   if (!v) return 0;
@@ -1332,7 +1341,7 @@ function renderSlide1(data) {
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td style="font-weight:700; color:#0f172a; text-align:left;">${d.code}</td>
+        <td style="font-weight:700; color:#0f172a; text-align:left;">${escapeHtml(d.code)}</td>
         <td>${d.r010 > 0 ? formatNumber(d.r010) : '-'}</td>
         <td style="color:#059669; font-weight:600;">${d.r010 > 0 ? (p010 < 1 ? safeFixed(p010, 1, '%') : safeFixed(p010, 0, '%')) : '0%'}</td>
         <td>${d.r1025 > 0 ? formatNumber(d.r1025) : '-'}</td>
@@ -1382,18 +1391,18 @@ function renderSlide1(data) {
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td style="font-family:'JetBrains Mono',monospace; font-weight:800; color:#1e293b;">${sku.sku}</td>
-        <td style="text-align:left; font-weight:700; color:#0f172a;">${sku.desc}</td>
-        <td style="text-align:left; color:#475569; font-weight:600;">${sku.div}</td>
-        <td style="text-align:center; color:#64748b; font-size:0.75rem;">${sku.rngFv}</td>
+        <td style="font-family:'JetBrains Mono',monospace; font-weight:800; color:#1e293b;">${escapeHtml(sku.sku)}</td>
+        <td style="text-align:left; font-weight:700; color:#0f172a;">${escapeHtml(sku.desc)}</td>
+        <td style="text-align:left; color:#475569; font-weight:600;">${escapeHtml(sku.div)}</td>
+        <td style="text-align:center; color:#64748b; font-size:0.75rem;">${escapeHtml(sku.rngFv)}</td>
         <td style="font-weight:800; color:#2563eb;">${formatNumber(sku.lpns)}</td>
         <td style="font-weight:800; color:${sku.cost > 20000 ? '#dc2626' : '#0f172a'};">${formatNumber(sku.cost)}</td>
         <td style="font-weight:600;">${formatNumber(sku.bultos)}</td>
         <td style="color:#64748b;">${formatNumber(sku.onHand)}</td>
-        <td style="font-weight:700; color:${sku.days > 500 ? '#b91c1c' : '#475569'};">${sku.days} d</td>
+        <td style="font-weight:700; color:${sku.days > 500 ? '#b91c1c' : '#475569'};">${escapeHtml(sku.days)} d</td>
         <td style="text-align:center;">
           <span style="background:${idx < 2 ? '#fee2e2' : '#f1f5f9'}; color:${idx < 2 ? '#b91c1c' : '#475569'}; padding:2px 6px; border-radius:5px; font-weight:800; font-size:0.72rem;">
-            ${sku.badge}
+            ${escapeHtml(sku.badge)}
           </span>
         </td>
       `;
@@ -1423,8 +1432,8 @@ function renderTableS1Ranges(ranges, totalCost, totalLpns, totalBultos) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td style="text-align:left; font-weight:700; color:#0f172a;">
-        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${r.color}; margin-right:6px;"></span>
-        ${r.label}
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${escapeHtml(r.color)}; margin-right:6px;"></span>
+        ${escapeHtml(r.label)}
       </td>
       <td style="font-weight:700; color:#2563eb;">${formatNumber(r.lpns)}</td>
       <td style="font-weight:600; color:#475569;">${safeFixed(r.lpnsPct, 2, '%')}</td>
@@ -1632,7 +1641,7 @@ function renderSlide2(data) {
         const trCost = document.createElement('tr');
         trCost.innerHTML = `
           <td rowspan="3" style="text-align:center; vertical-align:middle; font-weight:900; background:#f0fdf4; color:#166534; border-right:2px solid #bbf7d0; font-size:0.92rem;">
-            ${z.name}
+            ${escapeHtml(z.name)}
           </td>
           <td style="font-weight:800; color:#0f172a; text-align:left; background:#f8fafc;">COSTOS</td>
           <td style="text-align:right; font-weight:700;">${z.costos[0] > 0 ? formatNumber(z.costos[0]) : '-'}</td>
@@ -1767,13 +1776,14 @@ function renderSlide2(data) {
 
 function renderZoneTopCardHtml(zData) {
   const zone = zData.zone || 'ZONA';
+  const safeZone = escapeHtml(zone);
   const skus = zData.skus || [];
 
   let rowsHtml = '';
   let sumCost = 0, sumLpn = 0, sumBultos = 0;
 
   if (skus.length === 0) {
-    rowsHtml = `<tr><td colspan="6" style="text-align:center; padding:12px; color:#64748b;">No hay SKUs &gt;52 semanas en ${zone}</td></tr>`;
+    rowsHtml = `<tr><td colspan="6" style="text-align:center; padding:12px; color:#64748b;">No hay SKUs &gt;52 semanas en ${safeZone}</td></tr>`;
   } else {
     skus.forEach((s, idx) => {
       sumCost += (s.cost || 0);
@@ -1781,11 +1791,12 @@ function renderZoneTopCardHtml(zData) {
       sumBultos += (s.bultos || 0);
 
       const bg = (idx % 2 === 1) ? '#f4faf6' : '#ffffff';
+      const safeDesc = escapeHtml(s.desc);
       rowsHtml += `
         <tr style="background: ${bg}; font-size: 0.78rem;">
-          <td style="font-family:'JetBrains Mono',monospace; font-weight:800; color:#0f172a; text-align:left; padding:4.5px 6px;">${s.sku}</td>
-          <td style="text-align:left; font-weight:700; color:#1e293b; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:4.5px 6px;" title="${s.desc}">${s.desc}</td>
-          <td style="text-align:center; color:#64748b; font-size:0.74rem; padding:4.5px 4px;">${s.fv || '-'}</td>
+          <td style="font-family:'JetBrains Mono',monospace; font-weight:800; color:#0f172a; text-align:left; padding:4.5px 6px;">${escapeHtml(s.sku)}</td>
+          <td style="text-align:left; font-weight:700; color:#1e293b; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:4.5px 6px;" title="${safeDesc}">${safeDesc}</td>
+          <td style="text-align:center; color:#64748b; font-size:0.74rem; padding:4.5px 4px;">${escapeHtml(s.fv || '-')}</td>
           <td style="text-align:right; font-weight:800; color:#0f172a; padding:4.5px 6px;">${formatNumber(s.lpns)}</td>
           <td style="text-align:right; font-weight:800; color:${s.cost > 20000 ? '#dc2626' : '#0f172a'}; padding:4.5px 6px;">${formatNumber(s.cost)}</td>
           <td style="text-align:right; font-weight:600; padding:4.5px 6px;">${formatNumber(s.bultos)}</td>
@@ -1801,7 +1812,7 @@ function renderZoneTopCardHtml(zData) {
   return `
     <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 8px; overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
       <div style="background: #2d6a4f; color: #ffffff; text-align: center; font-weight: 900; font-size: 0.90rem; padding: 5px; border-radius: 5px 5px 0 0; margin-bottom: 4px; letter-spacing: 0.5px;">
-        ${zone}
+        ${safeZone}
       </div>
       <table class="exec-table exec-table-sm exec-table-green" style="width: 100%; border-collapse: collapse;">
         <thead>
@@ -1837,7 +1848,7 @@ function renderSlide3(data) {
   theadRow.innerHTML = `<th style="text-align:left; font-weight:900; padding:4px 6px; font-size:0.78rem;">Rango Semanas</th>`;
   (data.weeks || []).forEach((w, idx) => {
     const isCurrent = idx === data.weeks.length - 1;
-    theadRow.innerHTML += `<th style="${isCurrent ? 'background:#eff6ff; color:#1d4ed8; font-weight:900; font-size:0.78rem; padding:4px 3px;' : 'font-weight:800; font-size:0.76rem; padding:4px 3px;'}">${w}</th>`;
+    theadRow.innerHTML += `<th style="${isCurrent ? 'background:#eff6ff; color:#1d4ed8; font-weight:900; font-size:0.78rem; padding:4px 3px;' : 'font-weight:800; font-size:0.76rem; padding:4px 3px;'}">${escapeHtml(w)}</th>`;
   });
   theadRow.innerHTML += `<th style="font-weight:900; font-size:0.78rem; padding:4px 4px;">Variación</th>`;
 
@@ -1853,8 +1864,8 @@ function renderSlide3(data) {
 
     let trHtml = `
       <td style="text-align:left; font-weight:800; color:#1e293b; font-size:0.78rem; padding:4px 6px; white-space:nowrap;">
-        <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${e.color}; margin-right:5px;"></span>
-        ${e.label}
+        <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${escapeHtml(e.color)}; margin-right:5px;"></span>
+        ${escapeHtml(e.label)}
       </td>
     `;
     vals.forEach((v, idx) => {
@@ -1887,11 +1898,11 @@ function renderSlide3(data) {
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td style="font-weight:700; color:#0f172a;">${loc.div}</td>
+      <td style="font-weight:700; color:#0f172a;">${escapeHtml(loc.div)}</td>
       <td style="font-weight:600;">${formatNumber(loc.r010)}</td>
       <td style="${loc.r1025 > 500 ? 'background:#fffbeb; font-weight:700; color:#b45309;' : 'font-weight:600;'}">${formatNumber(loc.r1025)}</td>
       <td style="${loc.r2552 > 100 ? 'background:#ffedd5; font-weight:800; color:#c2410c;' : 'font-weight:600;'}">${formatNumber(loc.r2552)}</td>
-      <td style="${loc.r52 > 10 ? 'background:#fee2e2; font-weight:900; color:#dc2626;' : 'font-weight:600;'}">${loc.r52 > 0 ? loc.r52 : '-'}</td>
+      <td style="${loc.r52 > 10 ? 'background:#fee2e2; font-weight:900; color:#dc2626;' : 'font-weight:600;'}">${loc.r52 > 0 ? formatNumber(loc.r52) : '-'}</td>
       <td style="font-weight:800; color:#0f172a;">${formatNumber(loc.total)}</td>
       <td style="color:#2563eb; font-weight:800;">${safeFixed(loc.pct, 1, '%')}</td>
     `;

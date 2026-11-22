@@ -24,21 +24,55 @@ jobs:
       - name: Descargar código
         uses: actions/checkout@v4
 
-      - name: Inyectar Secretos de Configuración (Google, Gemini & Mapbox)
+      - name: Inyectar Config Pública (Google Client ID & Mapbox Token)
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
         run: |
           if [ -n "$GOOGLE_CLIENT_ID" ]; then
             sed -i "s|TU_CLIENT_ID_AQUI|${GOOGLE_CLIENT_ID}|g" js/config.js
           fi
-          if [ -n "$GEMINI_API_KEY" ]; then
-            sed -i "s|TU_GEMINI_API_KEY_AQUI|${GEMINI_API_KEY}|g" js/config.js
-          fi
           if [ -n "$MAPBOX_TOKEN" ]; then
             sed -i "s|TU_MAPBOX_TOKEN_AQUI|${MAPBOX_TOKEN}|g" js/config.js
           fi
+
+      - name: Validar sintaxis JS y aplicar versionado anti-caché
+        env:
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const { execFileSync } = require("child_process");
+
+            function walk(dir, extList, out = []) {
+              for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (ent.name === ".git" || ent.name === ".github" || ent.name === "node_modules") continue;
+                const full = path.join(dir, ent.name);
+                if (ent.isDirectory()) walk(full, extList, out);
+                else if (extList.some(ext => ent.name.toLowerCase().endsWith(ext))) out.push(full);
+              }
+              return out;
+            }
+
+            const jsFiles = walk(".", [".js"]);
+            for (const f of jsFiles) {
+              execFileSync("node", ["--check", f], { stdio: "inherit" });
+            }
+            console.log(`✅ Sintaxis verificada en ${jsFiles.length} archivos JS.`);
+
+            const ver = (process.env.SHORT_SHA || Date.now().toString()).slice(0, 8);
+            const htmlFiles = walk(".", [".html"]);
+            for (const h of htmlFiles) {
+              let content = fs.readFileSync(h, "utf8");
+              content = content.replace(
+                /(<(?:script|link)\b[^>]*?\b(?:src|href)=["\x27])((?!https?:\/\/|data:|#)[^"\x27?#]+?\.(?:js|css))(?:\?[^"\x27]*)?(["\x27])/gi,
+                `$1$2?v=${ver}$3`
+              );
+              fs.writeFileSync(h, content, "utf8");
+            }
+            console.log(`✅ Versionado ?v=${ver} aplicado en ${htmlFiles.length} archivos HTML.`);
+          '
 
       - name: Limpiar archivos internos antes de publicar
         run: |

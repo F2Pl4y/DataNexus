@@ -1,4 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
+  const escapeHtml = (str) => String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
   // ══════════════════════════════════════════════
   // CHART DATA LABELS PLUGIN REGISTRATION
   // ══════════════════════════════════════════════
@@ -84,8 +91,6 @@ document.addEventListener('DOMContentLoaded', () => {
       emptyMsg.classList.remove('hidden');
       return;
     }
-
-    const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 
     files.forEach(file => {
       const li = document.createElement('li');
@@ -3174,7 +3179,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     const icon = type === 'success' ? 'fa-circle-check' : (type === 'danger' ? 'fa-triangle-exclamation' : 'fa-circle-info');
-    toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
+    const iconEl = document.createElement('i');
+    iconEl.className = `fa-solid ${icon}`;
+    const spanEl = document.createElement('span');
+    spanEl.textContent = msg;
+    toast.appendChild(iconEl);
+    toast.appendChild(spanEl);
     container.appendChild(toast);
     setTimeout(() => {
       toast.style.opacity = '0';

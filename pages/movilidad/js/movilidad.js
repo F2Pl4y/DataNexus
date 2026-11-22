@@ -2812,7 +2812,7 @@ function dibujarRutasEnMapa() {
       if (sentido === 'INGRESO') {
         const esFin = p.numVisual === puntos.length;
         const h = p.horaIngreso || (esFin ? '06:30 a.m.' : '');
-        tooltipDetalle = h ? `<br><small style="color: #60a5fa;"><i class="fa-regular fa-clock"></i> Recojo: <b>${h}</b></small>` : '';
+        tooltipDetalle = h ? `<br><small style="color: #60a5fa;"><i class="fa-regular fa-clock"></i> Recojo: <b>${escapeHtml(h)}</b></small>` : '';
       } else {
         if (p.numVisual === 1) {
           tooltipDetalle = `<br><small style="color: #fb923c;"><i class="fa-solid fa-flag-checkered"></i> Salida CD: <b>04:30 p.m.</b></small>`;
@@ -2826,7 +2826,7 @@ function dibujarRutasEnMapa() {
       const esCD = isCdStop(p);
       const marcador = L.marker([p.lat, p.lng], { icon: crearIconoDePinColoreado(color, p.numVisual, esCD) })
         .addTo(AppState.mapInstance)
-        .bindTooltip(`<b>Ruta ${rId}</b> [${p.numVisual}/${puntos.length}]: ${p.nombre}${tooltipDetalle}`, {
+        .bindTooltip(`<b>Ruta ${escapeHtml(rId)}</b> [${p.numVisual}/${puntos.length}]: ${escapeHtml(p.nombre)}${tooltipDetalle}`, {
           permanent: false, // Solo visible en hover o al filtrar ruta -> 100% fluido
           direction: 'top',
           className: 'etiqueta-paradero',
@@ -2858,14 +2858,14 @@ function dibujarRutasEnMapa() {
       : '<i class="fa-solid fa-route"></i> Navegar Salida del CD';
 
     if (coordsGoogle.length <= 10) {
-      botonesGPS = `<a href="${generarLinkGoogle(coordsGoogle)}" target="_blank" rel="noopener" class="${btnClass}">${labelGPS}</a>`;
+      botonesGPS = `<a href="${generarLinkGoogle(coordsGoogle)}" target="_blank" rel="noopener noreferrer" class="${btnClass}">${labelGPS}</a>`;
     } else {
       const parte1 = coordsGoogle.slice(0, 10);
       const parte2 = coordsGoogle.slice(9);
       botonesGPS = `
         <div style="display:flex; gap:6px;">
-          <a href="${generarLinkGoogle(parte1)}" target="_blank" rel="noopener" class="${btnClass}" style="flex:1;"><i class="fa-solid fa-location-arrow"></i> GPS Parte 1</a>
-          <a href="${generarLinkGoogle(parte2)}" target="_blank" rel="noopener" class="${btnClass}" style="flex:1; background-color:#16a34a !important;"><i class="fa-solid fa-location-arrow"></i> GPS Parte 2</a>
+          <a href="${generarLinkGoogle(parte1)}" target="_blank" rel="noopener noreferrer" class="${btnClass}" style="flex:1;"><i class="fa-solid fa-location-arrow"></i> GPS Parte 1</a>
+          <a href="${generarLinkGoogle(parte2)}" target="_blank" rel="noopener noreferrer" class="${btnClass}" style="flex:1; background-color:#16a34a !important;"><i class="fa-solid fa-location-arrow"></i> GPS Parte 2</a>
         </div>
       `;
     }
@@ -2886,7 +2886,7 @@ function dibujarRutasEnMapa() {
           if (sentido === 'INGRESO') {
             const esFin = p.numVisual === puntos.length;
             const h = p.horaIngreso || (esFin ? '06:30 a.m.' : '--:--');
-            badgeHora = `<span class="paradero-hora badge-hora-ingreso" title="Hora de recojo"><i class="fa-regular fa-clock"></i> ${h}</span>`;
+            badgeHora = `<span class="paradero-hora badge-hora-ingreso" title="Hora de recojo"><i class="fa-regular fa-clock"></i> ${escapeHtml(h)}</span>`;
           } else {
             if (p.numVisual === 1) {
               badgeHora = `<span class="paradero-hora badge-hora-salida" title="Salida del CD"><i class="fa-solid fa-flag-checkered"></i> 04:30 p.m.</span>`;
@@ -2898,10 +2898,11 @@ function dibujarRutasEnMapa() {
               badgeHora = `<span class="paradero-hora badge-hora-desembarque" title="Punto de bajada"><i class="fa-solid fa-person-walking-arrow-right"></i> Bajada</span>`;
             }
           }
+          const safeParadero = escapeHtml(p.nombre);
           return `
             <div class="tarjeta-paradero-fila">
               <span class="paradero-num" style="color: ${colorAsignado};">${p.numVisual}.</span>
-              <span class="paradero-nombre" title="${p.nombre}">${p.nombre}</span>
+              <span class="paradero-nombre" title="${safeParadero}">${safeParadero}</span>
               ${badgeHora}
             </div>
           `;
@@ -2911,10 +2912,10 @@ function dibujarRutasEnMapa() {
 
     tarjetaRuta.innerHTML = `
       <div class="tarjeta-ruta-title" style="color: ${colorAsignado}; display: flex; justify-content: space-between; align-items: center;">
-        <span><i class="fa-solid fa-bus"></i> RUTA ${nombreRuta}</span>
+        <span><i class="fa-solid fa-bus"></i> RUTA ${escapeHtml(nombreRuta)}</span>
         ${badgeSentido}
       </div>
-      <div class="tarjeta-stats" id="stats-ruta-${nombreRuta}">
+      <div class="tarjeta-stats">
         <span><i class="fa-solid fa-road"></i> Calculando...</span>
         <span><i class="fa-regular fa-clock"></i> ...</span>
         <span style="font-size: 0.72rem; color: #94a3b8;">${puntos.length} paraderos</span>
@@ -2937,7 +2938,7 @@ function dibujarRutasEnMapa() {
       const distKM = (rutaData.distance / 1000).toFixed(1);
       const durMin = Math.round(rutaData.duration / 60);
 
-      const statsEl = document.getElementById(`stats-ruta-${nombreRuta}`);
+      const statsEl = tarjetaRuta.querySelector('.tarjeta-stats');
       if (statsEl) {
         statsEl.innerHTML = `<span><i class="fa-solid fa-road"></i> ${distKM} km</span><span><i class="fa-regular fa-clock"></i> ~${durMin} min</span><span style="font-size: 0.72rem; color: #94a3b8;">${puntos.length} paraderos</span>`;
       }
@@ -3050,7 +3051,7 @@ function dibujarRutasEnMapa() {
         }
       }
 
-      const statsEl = document.getElementById(`stats-ruta-${nombreRuta}`);
+      const statsEl = tarjetaRuta.querySelector('.tarjeta-stats');
       if (statsEl) {
         statsEl.innerHTML = `<span><i class="fa-solid fa-road"></i> Trazado directo</span><span><i class="fa-regular fa-compass"></i> ${puntos.length} paraderos</span>`;
       }
@@ -3847,13 +3848,14 @@ function renderAnalisisCostos() {
   if (tbodyDetalle) {
     if (rutasArray.length === 0) {
       const filtroContexto = isVerTodas ? 'el rango seleccionado' : `la Semana ${valSem}${valDia !== 'TODOS' ? ' (' + valDia + ')' : ''}${valFecha !== 'TODAS' ? ' - ' + valFecha : ''}`;
-      tbodyDetalle.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #94a3b8; padding: 25px;"><i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> No se registraron viajes de colaboradores para ${filtroContexto} con los filtros demográficos actuales.</td></tr>`;
+      tbodyDetalle.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #94a3b8; padding: 25px;"><i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> No se registraron viajes de colaboradores para ${escapeHtml(filtroContexto)} con los filtros demográficos actuales.</td></tr>`;
     } else {
       tbodyDetalle.innerHTML = rutasArray.map(r => {
         const isDesc = (r.ruta === 'Desconocido');
+        const safeRuta = escapeHtml(r.ruta);
         const rutaDisplay = isDesc 
           ? `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-circle-question"></i> Sin Ruta Asignada</span>` 
-          : `<span class="ruta-badge" style="background: ${getRutaColor(r.ruta)}22; color: ${getRutaColor(r.ruta)}; border: 1px solid ${getRutaColor(r.ruta)}44; padding: 3px 8px; border-radius: 4px;">${r.ruta}</span>`;
+          : `<span class="ruta-badge" style="background: ${getRutaColor(r.ruta)}22; color: ${getRutaColor(r.ruta)}; border: 1px solid ${getRutaColor(r.ruta)}44; padding: 3px 8px; border-radius: 4px;">${safeRuta}</span>`;
 
         return `
         <tr>
@@ -3902,7 +3904,7 @@ function renderAnalisisCostos() {
       if (tbTop) {
         tbTop.innerHTML = `
           <tr>
-            <td style="font-weight: 600; color: #4ade80;">${single.ruta}</td>
+            <td style="font-weight: 600; color: #4ade80;">${escapeHtml(single.ruta)}</td>
             <td style="text-align: center; font-weight: 700;">${(single.pctOcup * 100).toFixed(0)}%</td>
             <td style="text-align: right; color: #cbd5e1;">S/ ${single.costoViaje.toFixed(0)}</td>
           </tr>
@@ -3918,7 +3920,7 @@ function renderAnalisisCostos() {
       if (tbBottom) {
         tbBottom.innerHTML = `
           <tr>
-            <td style="font-weight: 600; color: #f87171;">${single.ruta}</td>
+            <td style="font-weight: 600; color: #f87171;">${escapeHtml(single.ruta)}</td>
             <td style="text-align: center; font-weight: 700; color: #f87171;">${(single.pctOcup * 100).toFixed(0)}%</td>
             <td style="text-align: right; color: #cbd5e1;">S/ ${single.costoViaje.toFixed(0)}</td>
           </tr>
@@ -3938,7 +3940,7 @@ function renderAnalisisCostos() {
       } else {
         tbTop.innerHTML = top3Mas.map(r => `
           <tr>
-            <td style="font-weight: 600; color: #4ade80;">${r.ruta}</td>
+            <td style="font-weight: 600; color: #4ade80;">${escapeHtml(r.ruta)}</td>
             <td style="text-align: center; font-weight: 700;">${(r.pctOcup * 100).toFixed(0)}%</td>
             <td style="text-align: right; color: #cbd5e1;">S/ ${r.costoViaje.toFixed(0)}</td>
           </tr>
@@ -3952,7 +3954,7 @@ function renderAnalisisCostos() {
       } else {
         tbBottom.innerHTML = top3Menos.map(r => `
           <tr>
-            <td style="font-weight: 600; color: #f87171;">${r.ruta}</td>
+            <td style="font-weight: 600; color: #f87171;">${escapeHtml(r.ruta)}</td>
             <td style="text-align: center; font-weight: 700; color: #f87171;">${(r.pctOcup * 100).toFixed(0)}%</td>
             <td style="text-align: right; color: #cbd5e1;">S/ ${r.costoViaje.toFixed(0)}</td>
           </tr>
@@ -4739,12 +4741,35 @@ function initAiAssistant() {
   const btnClose = document.getElementById('btnCloseAiDrawer');
   const btnClearChat = document.getElementById('btnClearAiChat');
   const btnExportCopilot = document.getElementById('btnExportCopilotQuick');
+  const btnConfigGeminiLocal = document.getElementById('btnConfigGeminiLocal');
   const btnSend = document.getElementById('btnSendAiChat');
   const inputMsg = document.getElementById('aiChatInput');
 
   updateAiStatusUI();
   if (window.GoogleSheetsService && typeof window.GoogleSheetsService.getClientId === 'function') {
     window.GoogleSheetsService.getClientId().then(() => updateAiStatusUI());
+  }
+
+  window.configureLocalGeminiKey = () => {
+    const current = localStorage.getItem('DATANEXUS_GEMINI_KEY') || '';
+    const entered = window.prompt(
+      'Pega tu API Key personal de Google Gemini (se guarda SOLO en tu navegador local para proteger tu clave; deja vacío para borrarla):',
+      current ? '********' : ''
+    );
+    if (entered === null) return;
+    const trimmed = entered.trim();
+    if (!trimmed) {
+      localStorage.removeItem('DATANEXUS_GEMINI_KEY');
+      if (window.ClipboardUtil) ClipboardUtil.showToast('Clave Gemini local eliminada de este navegador.', 'info');
+    } else if (trimmed !== '********') {
+      localStorage.setItem('DATANEXUS_GEMINI_KEY', trimmed);
+      if (window.ClipboardUtil) ClipboardUtil.showToast('✅ Clave Gemini guardada solo en tu navegador local.', 'success');
+    }
+    updateAiStatusUI();
+  };
+
+  if (btnConfigGeminiLocal) {
+    btnConfigGeminiLocal.addEventListener('click', window.configureLocalGeminiKey);
   }
 
   // Abrir y Cerrar Drawer
@@ -4861,7 +4886,7 @@ function updateAiContextBanner() {
   if (selDia !== 'TODOS') semText += ` (${selDia})`;
   if (selFecha !== 'TODAS') semText += ` [${selFecha}]`;
 
-  banner.innerHTML = `<i class="fa-solid fa-database" style="color: #38bdf8;"></i> <span>Contexto: <b>${semText}</b> • ${pasajEl} pasajeros • Ocup. ${ocupEl} • ${costoEl}</span>`;
+  banner.innerHTML = `<i class="fa-solid fa-database" style="color: #38bdf8;"></i> <span>Contexto: <b>${escapeHtml(semText)}</b> • ${escapeHtml(pasajEl)} pasajeros • Ocup. ${escapeHtml(ocupEl)} • ${escapeHtml(costoEl)}</span>`;
 }
 
 function getHistoricalWeeksSummary() {
@@ -5037,10 +5062,10 @@ async function sendUserAiMessage() {
     return;
   }
 
-  // Obtener clave API (desde config.js en GitHub Pages, proxy /api/gemini en Vercel, o localStorage)
+  // Obtener clave API (desde proxy /api/gemini en Vercel o localStorage del usuario; en GitHub Pages no se expone en el código)
   const apiKey = getGeminiApiKey();
   if (!apiKey && !hasGeminiProxy()) {
-    appendSystemChatMessage('⚠️ <b>Clave de API no configurada:</b><br>Configura el secreto <code>GEMINI_API_KEY</code> en tu repositorio de GitHub (<b>Settings &gt; Secrets and variables &gt; Actions</b>) o en las Variables de Entorno de Vercel.<br><small style="color:#94a3b8;">Si estás en pruebas locales, puedes activarla temporalmente ejecutando en la consola: <code>localStorage.setItem("DATANEXUS_GEMINI_KEY", "tu_clave")</code>.</small>');
+    appendSystemChatMessage('⚠️ <b>Asistente IA sin clave local:</b><br>Por seguridad, GitHub Pages no expone claves privadas de Gemini en el código público.<br><button type="button" onclick="window.configureLocalGeminiKey && window.configureLocalGeminiKey()" style="margin-top:8px; background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.82rem;"><i class="fa-solid fa-key"></i> Ingresar mi clave Gemini local</button><br><small style="color:#94a3b8; display:block; margin-top:6px;">Si usas Vercel con <code>GEMINI_API_KEY</code> configurada en el servidor, funcionará automáticamente sin pedir clave aquí.</small>');
     return;
   }
 
@@ -5097,7 +5122,7 @@ Google AI Studio no reconoció la clave configurada. Verifica que sea la clave c
   }
 
   if (!result.ok) {
-    appendSystemChatMessage(`⚠️ <b>Error en la consulta:</b> ${result.message || 'Error al conectar con Gemini'}`);
+    appendSystemChatMessage(`⚠️ <b>Error en la consulta:</b> ${escapeHtml(result.message || 'Error al conectar con Gemini')}`);
     return;
   }
 
@@ -5326,7 +5351,7 @@ Por favor realiza:
       } else {
         alert('¡Reporte copiado al portapapeles! Pégalo en Microsoft Copilot.');
       }
-      appendSystemChatMessage('📋 <b>Contexto copiado para Microsoft Copilot.</b><br>Puedes abrir Microsoft Teams o <a href="https://copilot.microsoft.com" target="_blank" style="color:#38bdf8;">copilot.microsoft.com</a> con tu usuario corporativo y pegar este reporte directamente.');
+      appendSystemChatMessage('📋 <b>Contexto copiado para Microsoft Copilot.</b><br>Puedes abrir Microsoft Teams o <a href="https://copilot.microsoft.com" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;">copilot.microsoft.com</a> con tu usuario corporativo y pegar este reporte directamente.');
     }).catch(err => {
       prompt('Copia manualmente este texto para Microsoft Copilot:', copilotPrompt);
     });
@@ -5418,7 +5443,8 @@ function popularDropdownDistritosCalor() {
   const sorted = Array.from(distSet).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
   let opts = '<option value="TODOS">Todos los Distritos</option>';
   sorted.forEach(d => {
-    opts += `<option value="${d}">${d}</option>`;
+    const safeDist = escapeHtml(d);
+    opts += `<option value="${safeDist}">${safeDist}</option>`;
   });
   sel.innerHTML = opts;
   if (sorted.includes(currentVal)) {
@@ -5623,7 +5649,7 @@ function renderMapaCalorEmpleados() {
           const pMarker = L.marker([lat, lng], {
             icon: busPinIcon,
             zIndexOffset: 1200
-          }).bindTooltip(`<b>🚌 ${p.nombre}</b><br><small style="color: #94a3b8;">Ruta: ${p.ruta}</small>`, {
+          }).bindTooltip(`<b>🚌 ${escapeHtml(p.nombre)}</b><br><small style="color: #94a3b8;">Ruta: ${escapeHtml(p.ruta)}</small>`, {
             direction: 'top',
             offset: [0, -10],
             className: 'etiqueta-paradero'
@@ -5660,10 +5686,11 @@ function renderMapaCalorEmpleados() {
         const empsDist = emps.filter(e => (e.distrito || '').toUpperCase() === d.name.toUpperCase() && e.distCd > 0);
         const distProm = empsDist.length > 0 ? (empsDist.reduce((a, b) => a + b.distCd, 0) / empsDist.length).toFixed(1) + ' km' : '-';
 
+        const safeDistName = escapeHtml(d.name);
         html += `
-          <div class="distrito-ranking-item" onclick="enfocarDistritoEnMapa('${d.name.replace(/'/g, "\\'")}')" title="Clic para enfocar ${d.name} en el mapa">
+          <div class="distrito-ranking-item" data-distrito="${safeDistName}" title="Clic para enfocar ${safeDistName} en el mapa">
             <div class="distrito-item-header">
-              <span><b>#${idx + 1}</b> ${d.name}</span>
+              <span><b>#${idx + 1}</b> ${safeDistName}</span>
               <span class="distrito-item-count">${d.count} <small style="color: #94a3b8; font-weight: normal;">(${pct}%)</small></span>
             </div>
             <div class="distrito-item-bar-bg">
@@ -5677,6 +5704,11 @@ function renderMapaCalorEmpleados() {
         `;
       });
       listaDistEl.innerHTML = html;
+      listaDistEl.querySelectorAll('.distrito-ranking-item').forEach(item => {
+        item.addEventListener('click', () => {
+          enfocarDistritoEnMapa(item.dataset.distrito);
+        });
+      });
     }
   }
 }

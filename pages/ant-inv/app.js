@@ -244,6 +244,16 @@ function handleExcelUpload(event) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function processExcelFile(file) {
+  const MAX_FILE_BYTES = 50 * 1024 * 1024;
+  if (!file || !/\.(xlsx|xls|xlsm|xlsb|csv)$/i.test(file.name || '')) {
+    showToast('Formato no válido. Selecciona un archivo Excel (.xlsx, .xlsm, .xlsb, .xls) o CSV.', 'danger', 4500);
+    return;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    showToast('El archivo supera el límite seguro de 50 MB para el navegador.', 'danger', 4500);
+    return;
+  }
+
   showLoading(`Abriendo ${file.name}...`, 'Leyendo archivo binario...');
 
   const reader = new FileReader();

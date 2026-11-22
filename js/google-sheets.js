@@ -15,6 +15,22 @@ const GoogleSheetsService = {
   cachedClientId: null,
 
   /**
+   * Wrapper fetch con timeout por AbortController para evitar peticiones colgadas en redes lentas/bloqueadas
+   */
+  async fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    if (typeof AbortController === 'undefined') {
+      return fetch(url, options);
+    }
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timerId);
+    }
+  },
+
+  /**
    * Obtiene el Client ID de forma asíncrona:
    * 1. Desde window.APP_CONFIG.DEFAULT_GOOGLE_CLIENT_ID (inyectado en GitHub Pages o definido en js/config.js)
    * 2. Desde la función Serverless de Vercel (/api/config)
@@ -37,7 +53,7 @@ const GoogleSheetsService = {
     // 2. Intentar obtener desde el endpoint Serverless (/api/config en Vercel)
     const configEndpoint = (window.APP_CONFIG && window.APP_CONFIG.VERCEL_CONFIG_ENDPOINT) || '/api/config';
     try {
-      const res = await fetch(configEndpoint, { cache: 'no-store' });
+      const res = await this.fetchWithTimeout(configEndpoint, { cache: 'no-store' }, 4000);
       if (res.ok) {
         const data = await res.json();
         if (window.APP_CONFIG) {
@@ -195,11 +211,11 @@ const GoogleSheetsService = {
   async fetchUserProfile() {
     if (!this.accessToken) return null;
     try {
-      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      const res = await this.fetchWithTimeout('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: {
           Authorization: `Bearer ${this.accessToken}`
         }
-      });
+      }, 10000);
       if (res.ok) {
         const data = await res.json();
         this.userEmail = data.email || null;
@@ -245,11 +261,11 @@ const GoogleSheetsService = {
     }
 
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${this.accessToken}`
       }
-    });
+    }, 15000);
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -291,11 +307,11 @@ const GoogleSheetsService = {
     const encodedRange = encodeURIComponent(tabName);
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
 
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${this.accessToken}`
       }
-    });
+    }, 20000);
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -446,11 +462,11 @@ const GoogleSheetsService = {
       const query = encodeURIComponent("(mimeType='application/vnd.google-apps.spreadsheet' or mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') and trashed=false");
       const url = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=recency desc&fields=files(id, name, modifiedTime, owners, mimeType)&pageSize=15`;
       
-      const res = await fetch(url, {
+      const res = await this.fetchWithTimeout(url, {
         headers: {
           Authorization: `Bearer ${this.accessToken}`
         }
-      });
+      }, 15000);
 
       if (res.ok) {
         const data = await res.json();

@@ -36,7 +36,7 @@ jobs:
             sed -i "s|TU_MAPBOX_TOKEN_AQUI|${MAPBOX_TOKEN}|g" js/config.js
           fi
 
-      - name: Validar sintaxis JS y aplicar versionado anti-caché
+      - name: Validar sintaxis JS, ejecutar pruebas y aplicar versionado anti-caché
         env:
           SHORT_SHA: ${{ github.sha }}
         run: |
@@ -47,7 +47,7 @@ jobs:
 
             function walk(dir, extList, out = []) {
               for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-                if (ent.name === ".git" || ent.name === ".github" || ent.name === "node_modules") continue;
+                if (ent.name === ".git" || ent.name === ".github" || ent.name === "node_modules" || ent.name === "tests") continue;
                 const full = path.join(dir, ent.name);
                 if (ent.isDirectory()) walk(full, extList, out);
                 else if (extList.some(ext => ent.name.toLowerCase().endsWith(ext))) out.push(full);
@@ -60,6 +60,8 @@ jobs:
               execFileSync("node", ["--check", f], { stdio: "inherit" });
             }
             console.log(`✅ Sintaxis verificada en ${jsFiles.length} archivos JS.`);
+
+            execFileSync("node", ["--test", "tests/security-and-core.test.js"], { stdio: "inherit" });
 
             const ver = (process.env.SHORT_SHA || Date.now().toString()).slice(0, 8);
             const htmlFiles = walk(".", [".html"]);
@@ -76,8 +78,8 @@ jobs:
 
       - name: Limpiar archivos internos antes de publicar
         run: |
-          rm -rf .git .github api vercel.json .gitignore .vercelignore .gitattributes "pages/movilidad/mis rutas"
-          find . -type f \( -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsm" -o -name "*.xlsb" -o -name "*.csv" -o -name "*.txt" \) -delete
+          rm -rf .git .github api tests vercel.json .gitignore .vercelignore .gitattributes "pages/movilidad/mis rutas"
+          find . -type f \( -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsm" -o -name "*.xlsb" -o -name "*.csv" -o -name "*.txt" -o -name "*.md" \) -delete
 
       - name: Configurar Pages
         uses: actions/configure-pages@v4

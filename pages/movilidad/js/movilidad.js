@@ -2747,12 +2747,25 @@ function saveCachedRouteDirections(cacheKey, rutaData) {
   }
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timerId);
+  }
+}
+
 async function fetchRouteWithFallback(stringCoordenadas, routeIdx) {
   const mbToken = getMapboxToken();
   if (mbToken) {
     try {
       const mbUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${stringCoordenadas}?geometries=geojson&overview=full&access_token=${encodeURIComponent(mbToken)}`;
-      const res = await fetch(mbUrl);
+      const res = await fetchWithTimeout(mbUrl, {}, 10000);
       if (res.ok) {
         const data = await res.json();
         if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
@@ -2771,7 +2784,7 @@ async function fetchRouteWithFallback(stringCoordenadas, routeIdx) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
     const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${stringCoordenadas}?geometries=geojson&overview=full`;
-    const res = await fetch(osrmUrl);
+    const res = await fetchWithTimeout(osrmUrl, {}, 10000);
     if (res.ok) {
       const data = await res.json();
       if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
@@ -4657,9 +4670,9 @@ async function fetchAvailableModels(apiKey) {
     return AppState.discoveredGeminiModels;
   }
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, {
+    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, {
       headers: { 'x-goog-api-key': apiKey }
-    });
+    }, 10000);
     if (res.ok) {
       const json = await res.json();
       if (json.models && Array.isArray(json.models)) {
@@ -4772,7 +4785,7 @@ async function callGeminiApiMultiModel(apiKey, promptPayload, systemInstructionT
               body: JSON.stringify({ model: m.model, version: m.version, bodyPayload })
             };
 
-        const response = await fetch(url, fetchOptions);
+        const response = await fetchWithTimeout(url, fetchOptions, 25000);
 
         if (response.ok) {
           AppState.confirmedGeminiModel = m;

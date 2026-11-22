@@ -25,25 +25,43 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: { message: 'Parámetros de modelo no válidos.' } });
     }
 
-    if (!bodyPayload || typeof bodyPayload !== 'object') {
+    if (!bodyPayload || typeof bodyPayload !== 'object' || !Array.isArray(bodyPayload.contents)) {
       return res.status(400).json({ error: { message: 'Payload inválido.' } });
     }
 
-    const url = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent`;
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey
-      },
-      body: JSON.stringify(bodyPayload)
-    });
+    if (bodyPayload.contents.length === 0 || bodyPayload.contents.length > 20) {
+      return res.status(400).json({ error: { message: 'Cantidad de turnos fuera de rango.' } });
+    }
 
-    const data = await upstream.json().catch(() => ({}));
-    return res.status(upstream.status).json(data);
+    const serializedBody = JSON.stringify(bodyPayload);
+    if (serializedBody.length > 150000) {
+      return res.status(413).json({ error: { message: 'La consulta supera el tamaño máximo permitido.' } });
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent`;
+      const upstream = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        body: serializedBody,
+        signal: controller.signal
+      });
+
+      const data = await upstream.json().catch(() => ({}));
+      return res.status(upstream.status).json(data);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } catch (err) {
-    return res.status(500).json({
-      error: { message: err.message || 'Error interno al conectar con Gemini API' }
+    const isAbort = err && err.name === 'AbortError';
+    return res.status(isAbort ? 504 : 500).json({
+      error: { message: isAbort ? 'Tiempo de espera agotado al conectar con Gemini API' : 'Error interno al conectar con Gemini API' }
     });
   }
 };

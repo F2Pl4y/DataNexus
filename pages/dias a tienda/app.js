@@ -88,8 +88,18 @@ function handleFileSelect(e) {
   }
 }
 
-// Procesar el archivo con SheetJS
+// Procesar el archivo con SheetJS (con validación de extensión y tamaño máximo de 50 MB)
 function processFile(file) {
+  const MAX_FILE_BYTES = 50 * 1024 * 1024;
+  if (!file || !/\.(xlsx|xls|xlsm|xlsb|csv)$/i.test(file.name || '')) {
+    alert('Formato no compatible. Selecciona un archivo Excel (.xlsx, .xls, .xlsm, .xlsb) o CSV.');
+    return;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    alert('El archivo supera el límite seguro de 50 MB para procesarse en el navegador.');
+    return;
+  }
+
   const reader = new FileReader();
 
   document.getElementById('fileNameDisplay').textContent = "Procesando " + file.name + "...";
@@ -757,7 +767,7 @@ function exportSummaryToCsv() {
     let cols = [];
     for (let cell of row.cells) {
       let text = cell.innerText.trim();
-      if (/^[=+\-@\t\r]/.test(text)) {
+      if (/^[=+@\t\r]/.test(text) || (/^-/.test(text) && !/^-\s*\d+([.,]\d+)?\s*(%|d)?$/.test(text))) {
         text = `'${text}`;
       }
       cols.push('"' + text.replace(/"/g, '""') + '"');

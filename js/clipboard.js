@@ -56,6 +56,16 @@ const ClipboardUtil = {
     }
   },
 
+  sanitizeSpreadsheetCell(val) {
+    const s = val !== null && val !== undefined ? String(val) : '';
+    if (!s) return '';
+    // Prevenir CSV/TSV Formula Injection sin corromper números negativos legítimos (ej. -12.5 o -5%)
+    if (/^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-\s*\d+([.,]\d+)?\s*%?$/.test(s.trim()))) {
+      return `'${s}`;
+    }
+    return s;
+  },
+
   /**
    * Copia una columna completa con su encabezado en formato dual (TSV plano + HTML nativo)
    * Compatible con Excel, Google Sheets y texto plano.
@@ -65,7 +75,7 @@ const ClipboardUtil = {
   async copyColumn(columnName, values) {
     try {
       const escapeTsv = (val) => {
-        const s = val !== null && val !== undefined ? String(val) : '';
+        const s = this.sanitizeSpreadsheetCell(val);
         if (s.includes('\t') || s.includes('\n') || s.includes('"')) {
           return `"${s.replace(/"/g, '""')}"`;
         }
@@ -122,7 +132,7 @@ const ClipboardUtil = {
 
     try {
       const escapeTsv = (val) => {
-        const s = val !== null && val !== undefined ? String(val) : '';
+        const s = this.sanitizeSpreadsheetCell(val);
         if (s.includes('\t') || s.includes('\n') || s.includes('"')) {
           return `"${s.replace(/"/g, '""')}"`;
         }

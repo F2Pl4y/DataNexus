@@ -19,8 +19,6 @@ pages/movilidad/mis rutas/
 trash/
 **/trash/
 _local_backups/
-.vercel/
-.netlify/
 node_modules/
 
 # Archivos del sistema operativo y editores

@@ -4531,10 +4531,6 @@ function getGeminiApiKey() {
   return '';
 }
 
-function hasGeminiProxy() {
-  return Boolean(window.APP_CONFIG && window.APP_CONFIG.HAS_GEMINI_PROXY);
-}
-
 const GEMINI_FALLBACK_MODELS = [
   { version: 'v1beta', model: 'gemini-flash-lite-latest' },
   { version: 'v1beta', model: 'gemini-2.5-flash-lite' },
@@ -4608,12 +4604,9 @@ async function callGeminiApiMultiModel(apiKey, promptPayload, systemInstructionT
   }
 
   let lastErrorDetail = null;
-  const proxyEndpoint = (window.APP_CONFIG && window.APP_CONFIG.VERCEL_GEMINI_ENDPOINT) || '/api/gemini';
 
   for (const m of modelsToTry) {
-    const url = apiKey
-      ? `https://generativelanguage.googleapis.com/${m.version}/models/${m.model}:generateContent?key=${encodeURIComponent(apiKey)}`
-      : proxyEndpoint;
+    const url = `https://generativelanguage.googleapis.com/${m.version}/models/${m.model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     // Construir contents respetando la alternancia de turnos (user -> model -> user)
     const contents = [];
@@ -4651,20 +4644,14 @@ async function callGeminiApiMultiModel(apiKey, promptPayload, systemInstructionT
     // Hasta 2 intentos por modelo en caso de 503 (spikes momentáneos de demanda)
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const fetchOptions = apiKey
-          ? {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': apiKey
-              },
-              body: JSON.stringify(bodyPayload)
-            }
-          : {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: m.model, version: m.version, bodyPayload })
-            };
+        const fetchOptions = {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
+          body: JSON.stringify(bodyPayload)
+        };
 
         const response = await fetchWithTimeout(url, fetchOptions, 25000);
 
@@ -4860,7 +4847,7 @@ function updateAiStatusUI() {
     return;
   }
 
-  if (key || hasGeminiProxy()) {
+  if (key) {
     if (dot) dot.className = 'ai-status-dot';
     if (text) text.innerText = 'Conectado (Gemini Free)';
   } else {
@@ -5061,10 +5048,10 @@ async function sendUserAiMessage() {
     return;
   }
 
-  // Obtener clave API (desde proxy /api/gemini en Vercel o localStorage del usuario; en GitHub Pages no se expone en el código)
+  // Obtener clave API desde localStorage del navegador (en GitHub Pages nunca se expone en el código público)
   const apiKey = getGeminiApiKey();
-  if (!apiKey && !hasGeminiProxy()) {
-    appendSystemChatMessage('⚠️ <b>Asistente IA sin clave local:</b><br>Por seguridad, GitHub Pages no expone claves privadas de Gemini en el código público.<br><button type="button" class="btn-config-gemini-local" style="margin-top:8px; background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.82rem;"><i class="fa-solid fa-key"></i> Ingresar mi clave Gemini local</button><br><small style="color:#94a3b8; display:block; margin-top:6px;">Si usas Vercel con <code>GEMINI_API_KEY</code> configurada en el servidor, funcionará automáticamente sin pedir clave aquí.</small>');
+  if (!apiKey) {
+    appendSystemChatMessage('⚠️ <b>Asistente IA sin clave local:</b><br>Por seguridad, GitHub Pages no expone claves privadas de Gemini en el código público.<br><button type="button" class="btn-config-gemini-local" style="margin-top:8px; background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.82rem;"><i class="fa-solid fa-key"></i> Ingresar mi clave Gemini local</button><br><small style="color:#94a3b8; display:block; margin-top:6px;">Tu clave se guarda únicamente en este navegador y puedes eliminarla cuando quieras.</small>');
     return;
   }
 

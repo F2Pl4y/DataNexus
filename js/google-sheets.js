@@ -33,8 +33,7 @@ const GoogleSheetsService = {
   /**
    * Obtiene el Client ID de forma asíncrona:
    * 1. Desde window.APP_CONFIG.DEFAULT_GOOGLE_CLIENT_ID (inyectado en GitHub Pages o definido en js/config.js)
-   * 2. Desde la función Serverless de Vercel (/api/config)
-   * 3. Desde localStorage (fallback para desarrollo local)
+   * 2. Desde localStorage (fallback para desarrollo local)
    */
   async getClientId() {
     if (this.cachedClientId) {
@@ -50,30 +49,7 @@ const GoogleSheetsService = {
       }
     }
 
-    // 2. Intentar obtener desde el endpoint Serverless (/api/config en Vercel)
-    const configEndpoint = (window.APP_CONFIG && window.APP_CONFIG.VERCEL_CONFIG_ENDPOINT) || '/api/config';
-    try {
-      const res = await this.fetchWithTimeout(configEndpoint, { cache: 'no-store' }, 4000);
-      if (res.ok) {
-        const data = await res.json();
-        if (window.APP_CONFIG) {
-          if (data.mapboxToken && data.mapboxToken !== 'TU_MAPBOX_TOKEN_AQUI') {
-            window.APP_CONFIG.MAPBOX_TOKEN = data.mapboxToken.trim();
-          }
-          if (data.hasGeminiProxy) {
-            window.APP_CONFIG.HAS_GEMINI_PROXY = true;
-          }
-        }
-        if (data.clientId && data.clientId !== 'TU_CLIENT_ID_AQUI') {
-          this.cachedClientId = data.clientId.trim();
-          return this.cachedClientId;
-        }
-      }
-    } catch (e) {
-      // En GitHub Pages o servidor estático local dará 404; continuar al fallback
-    }
-
-    // 3. Fallback en localStorage (útil para desarrollo en localhost)
+    // 2. Fallback en localStorage (útil para desarrollo en localhost)
     const localCid = localStorage.getItem('sheetpivot_google_client_id');
     if (localCid && localCid.trim() !== 'TU_CLIENT_ID_AQUI') {
       this.cachedClientId = localCid.trim();

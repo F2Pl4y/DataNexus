@@ -98,7 +98,7 @@ jobs:
 
       - name: Limpiar archivos internos antes de publicar
         run: |
-          rm -rf .git .github api tests vercel.json .gitignore .vercelignore .gitattributes "pages/movilidad/mis rutas"
+          rm -rf .git .github tests .gitignore .gitattributes "pages/movilidad/mis rutas"
           find . -type f \( -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsm" -o -name "*.xlsb" -o -name "*.csv" -o -name "*.txt" -o -name "*.md" \) -delete
 
       - name: Configurar Pages

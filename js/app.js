@@ -1088,28 +1088,55 @@ async function restoreStateFromUrl() {
   const savedState = UrlStateManager.decodeState();
   if (!savedState) return;
 
-  if (savedState.sheetUrl) {
-    document.getElementById('sheetUrlInput').value = savedState.sheetUrl;
-    AppState.sheetUrl = savedState.sheetUrl;
-    AppState.sheetId = savedState.sheetId;
+  const ALLOWED_AGG = new Set(['SUM', 'COUNT', 'AVG', 'MIN', 'MAX']);
+  const ALLOWED_OPS = new Set(['contains', 'equals', 'starts_with', 'not_equals', 'gt', 'gte', 'lt', 'lte']);
+
+  if (typeof savedState.sheetUrl === 'string') {
+    const cleanUrl = savedState.sheetUrl.trim().slice(0, 500);
+    const extractedId = GoogleSheetsService.extractSpreadsheetId(cleanUrl) ||
+      (typeof savedState.sheetId === 'string' && /^[a-zA-Z0-9-_]{15,100}$/.test(savedState.sheetId.trim()) ? savedState.sheetId.trim() : '');
+    if (extractedId) {
+      document.getElementById('sheetUrlInput').value = cleanUrl;
+      AppState.sheetUrl = cleanUrl;
+      AppState.sheetId = extractedId;
+    }
   }
 
-  if (savedState.activeTab) {
-    AppState.activeTab = savedState.activeTab;
+  if (typeof savedState.activeTab === 'string') {
+    AppState.activeTab = savedState.activeTab.slice(0, 120);
   }
 
   if (savedState.tables && Array.isArray(savedState.tables)) {
     AppState.tables = savedState.tables
-      .filter(t => t && typeof t === 'object')
+      .filter(t => t && typeof t === 'object' && !Array.isArray(t))
+      .slice(0, 30)
       .map((t, idx) => ({
-        ...t,
-        id: String(t.id || `table_${Date.now()}_${idx}`).replace(/[^a-zA-Z0-9_-]/g, '') || `table_${Date.now()}_${idx}`,
+        id: String(t.id || `table_${Date.now()}_${idx}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) || `table_${Date.now()}_${idx}`,
         type: t.type === 'flat' ? 'flat' : 'pivot',
-        title: String(t.title || `Tabla ${idx + 1}`),
-        rowFields: Array.isArray(t.rowFields) ? t.rowFields.map(String) : [],
-        colFields: Array.isArray(t.colFields) ? t.colFields.map(String) : [],
-        selectedColumns: Array.isArray(t.selectedColumns) ? t.selectedColumns.map(String) : [],
-        filters: Array.isArray(t.filters) ? t.filters.filter(f => f && typeof f === 'object') : []
+        title: String(t.title || `Tabla ${idx + 1}`).slice(0, 120),
+        isCollapsed: Boolean(t.isCollapsed),
+        isDataCollapsed: Boolean(t.isDataCollapsed),
+        valField: typeof t.valField === 'string' ? t.valField.slice(0, 120) : '',
+        aggFunc: ALLOWED_AGG.has(t.aggFunc) ? t.aggFunc : 'SUM',
+        sortBy: typeof t.sortBy === 'string' ? t.sortBy.slice(0, 120) : '',
+        sortOrder: t.sortOrder === 'desc' ? 'desc' : 'asc',
+        globalSearch: typeof t.globalSearch === 'string' ? t.globalSearch.slice(0, 120) : '',
+        formats: (t.formats && typeof t.formats === 'object' && !Array.isArray(t.formats)) ? Object.fromEntries(
+          Object.entries(t.formats).filter(([k, v]) => k !== '__proto__' && typeof v === 'string').slice(0, 100)
+        ) : {},
+        rowFields: Array.isArray(t.rowFields) ? t.rowFields.map(v => String(v).slice(0, 120)).slice(0, 30) : [],
+        colFields: Array.isArray(t.colFields) ? t.colFields.map(v => String(v).slice(0, 120)).slice(0, 30) : [],
+        selectedColumns: Array.isArray(t.selectedColumns) ? t.selectedColumns.map(v => String(v).slice(0, 120)).slice(0, 60) : [],
+        filters: Array.isArray(t.filters)
+          ? t.filters
+              .filter(f => f && typeof f === 'object' && !Array.isArray(f))
+              .slice(0, 30)
+              .map(f => ({
+                field: String(f.field || '').slice(0, 120),
+                operator: ALLOWED_OPS.has(f.operator) ? f.operator : 'contains',
+                value: String(f.value ?? '').slice(0, 200)
+              }))
+          : []
       }));
   }
 

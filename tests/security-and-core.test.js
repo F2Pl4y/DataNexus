@@ -129,6 +129,13 @@ test('UrlStateManager: codifica y decodifica estado comprimido en hash', () => {
   win.location.hash = hash;
   const restored = mgr.decodeState();
   assert.deepEqual(restored, original);
+
+  // Rechaza payloads que no sean objetos o superen el límite seguro de tamaño
+  win.location.hash = '#state=' + encodeURIComponent(Buffer.from('["array"]', 'utf8').toString('base64'));
+  assert.equal(mgr.decodeState(), null);
+
+  win.location.hash = '#state=' + 'a'.repeat(100005);
+  assert.equal(mgr.decodeState(), null);
 });
 
 test('Seguridad en HTML y configuración pública: CSP, Referrer-Policy, SRI y sin claves privadas expuestas', () => {

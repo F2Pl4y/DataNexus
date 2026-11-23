@@ -484,7 +484,8 @@ function updateFilterOptionsFromSemana(chosenSemana, keepSelections = false) {
 
   selDia.innerHTML = `<option value="TODOS">Todos los Días de la Semana</option>`;
   activeDias.forEach(d => {
-    selDia.innerHTML += `<option value="${d}">${d}</option>`;
+    const safeDia = escapeHtml(d);
+    selDia.innerHTML += `<option value="${safeDia}">${safeDia}</option>`;
   });
 
   if (keepSelections && activeDias.includes(currentDia)) {
@@ -527,7 +528,7 @@ function updateFilterOptionsFromDia(chosenDia, chosenSemana, keepSelections = fa
   fechas.forEach(f => {
     const diaName = AppState.dateToDiaMap.get(f) || '';
     const label = diaName ? `${f} (${diaName})` : f;
-    selFecha.innerHTML += `<option value="${f}">${label}</option>`;
+    selFecha.innerHTML += `<option value="${escapeHtml(f)}">${escapeHtml(label)}</option>`;
   });
 
   if (keepSelections && fechas.includes(currentFecha)) {
@@ -2013,14 +2014,14 @@ function renderTables() {
     elTbDetalle.innerHTML = distritosArr.map((d, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${d.nombre}</td>
+        <td>${escapeHtml(d.nombre)}</td>
         <td>${d.count}</td>
         <td>${formatPct(d.count, totalEmps)}</td>
         <td>${d.promCd >= 0 ? d.promCd.toFixed(2) : '-'}</td>
         <td>${d.promCd >= 0 ? clasificarCD(d.promCd) : '-'}</td>
         <td>${d.promPar >= 0 ? d.promPar.toFixed(2) : '-'}</td>
         <td>${d.promPar >= 0 ? clasificarPar(d.promPar) : '-'}</td>
-        <td>${d.ruta}</td>
+        <td>${escapeHtml(d.ruta)}</td>
         <td>${obsDistrito(d.promCd, d.promPar)}</td>
       </tr>
     `).join('');
@@ -2035,7 +2036,7 @@ function renderTables() {
   const elTbRutas = document.querySelector('#tableRutasDisponibles tbody');
   if(elTbRutas) {
     elTbRutas.innerHTML = rutasSorted.map((r, i) => `
-      <tr><td>${r.nombre}</td><td>${r.count}</td><td>${formatPct(r.count, totalEmps)}</td></tr>
+      <tr><td>${escapeHtml(r.nombre)}</td><td>${r.count}</td><td>${formatPct(r.count, totalEmps)}</td></tr>
     `).join('');
   }
 
@@ -2044,7 +2045,7 @@ function renderTables() {
   const elTbParaderosTop = document.querySelector('#tableTopParaderos tbody');
   if(elTbParaderosTop) {
     elTbParaderosTop.innerHTML = paraderosSorted.map((p, i) => `
-      <tr><td>${i + 1}</td><td>${p.nombre}</td><td>${p.count}</td><td>${p.ruta}</td></tr>
+      <tr><td>${i + 1}</td><td>${escapeHtml(p.nombre)}</td><td>${p.count}</td><td>${escapeHtml(p.ruta)}</td></tr>
     `).join('');
   }
 
@@ -2117,7 +2118,7 @@ function renderTables() {
     const elTbReg = document.querySelector('#tableRegistroDiario tbody');
     if(elTbReg) {
       if (rutasDiario.length === 0) {
-        elTbReg.innerHTML = `<tr><td colspan="10" style="text-align: center; color: #94a3b8; padding: 20px;">No se registraron viajes para los filtros seleccionados en esta fecha (${fechaActual}).</td></tr>`;
+        elTbReg.innerHTML = `<tr><td colspan="10" style="text-align: center; color: #94a3b8; padding: 20px;">No se registraron viajes para los filtros seleccionados en esta fecha (${escapeHtml(fechaActual)}).</td></tr>`;
       } else {
         elTbReg.innerHTML = rutasDiario.map(r => {
           const isDesc = (r.ruta === 'Desconocido');
@@ -2135,7 +2136,7 @@ function renderTables() {
 
           const rutaDisplay = isDesc 
             ? `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-circle-question"></i> Sin Ruta Asignada</span>` 
-            : r.ruta;
+            : escapeHtml(r.ruta);
 
           return `<tr>
             <td>${rutaDisplay}</td>
@@ -2463,7 +2464,7 @@ function updateParaderosSourceBadge() {
       badge.style.background = 'rgba(34, 197, 94, 0.15)';
       badge.style.color = '#4ade80';
       badge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
-      badge.innerHTML = `<i class="fa-solid fa-cloud-check"></i> Google Drive: ${AppState.paraderosTabName || 'RUTAS MOVILIDAD'} (${count} pts)`;
+      badge.innerHTML = `<i class="fa-solid fa-cloud-check"></i> Google Drive: ${escapeHtml(AppState.paraderosTabName || 'RUTAS MOVILIDAD')} (${count} pts)`;
     }
     if (badgePill) {
       badgePill.style.background = '#16a34a';

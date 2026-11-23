@@ -35,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDragAndDrop();
 });
 
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event && event.reason;
+    if (reason && reason.name === 'AbortError') return;
+    console.error('[DataNexus DTI] Error inesperado:', reason);
+  });
+}
+
 function setupEventListeners() {
   const fileInput = document.getElementById('fileInput');
   fileInput.addEventListener('change', handleFileSelect);

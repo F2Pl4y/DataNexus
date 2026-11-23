@@ -40,7 +40,7 @@ const UrlStateManager = {
       }
 
       const payload = hash.substring(this.HASH_PREFIX.length);
-      if (!payload) return null;
+      if (!payload || payload.length > 100000) return null;
 
       let jsonString = '';
       if (typeof LZString !== 'undefined') {
@@ -56,8 +56,12 @@ const UrlStateManager = {
         }
       }
 
-      if (!jsonString) return null;
-      return JSON.parse(jsonString);
+      if (!jsonString || jsonString.length > 250000) return null;
+      const parsed = JSON.parse(jsonString);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null;
+      }
+      return parsed;
     } catch (err) {
       console.error('Error al decodificar estado de la URL:', err);
       return null;

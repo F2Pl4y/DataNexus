@@ -210,3 +210,16 @@ const ClipboardUtil = {
 };
 
 window.ClipboardUtil = ClipboardUtil;
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !window.__dataNexusErrorTrapInstalled) {
+  window.__dataNexusErrorTrapInstalled = true;
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event && event.reason;
+    if (reason && reason.name === 'AbortError') return;
+    console.error('[DataNexus] Promesa no capturada:', reason);
+    const msg = (reason && reason.message) ? reason.message : 'Ocurrió un error inesperado al procesar la solicitud.';
+    if (typeof msg === 'string' && msg.length > 0 && msg.length < 180) {
+      ClipboardUtil.showToast(msg, 'danger', 5000);
+    }
+  });
+}

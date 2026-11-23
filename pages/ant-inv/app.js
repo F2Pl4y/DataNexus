@@ -205,6 +205,17 @@ document.addEventListener('DOMContentLoaded', () => {
   setupUIControls();
 });
 
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event && event.reason;
+    if (reason && reason.name === 'AbortError') return;
+    console.error('[DataNexus ant-inv] Error inesperado:', reason);
+    if (typeof showToast === 'function') {
+      showToast('Ocurrió un error inesperado procesando la vista. Reintenta la acción.', 'danger', 4500);
+    }
+  });
+}
+
 function setupUIControls() {
   const fileInput = document.getElementById('excelFileInput');
   if (fileInput) {
@@ -1306,7 +1317,7 @@ function loadSampleData() {
 function updateHeaderWeekBadges() {
   ['slide1-week-badge', 'slide2-week-badge', 'slide3-week-badge'].forEach(id => {
     const badge = document.getElementById(id);
-    if (badge) badge.innerHTML = `<i class="fa-regular fa-calendar"></i> ${currentWeekLabel}`;
+    if (badge) badge.innerHTML = `<i class="fa-regular fa-calendar"></i> ${escapeHtml(currentWeekLabel)}`;
   });
 }
 

@@ -63,15 +63,20 @@ const GoogleSheetsService = {
    * Inicializa el estado desde localStorage para sobrevivir a los reinicios (F5) y compartir entre pestañas
    */
   initAuth() {
-    const storedToken = localStorage.getItem('gapi_access_token');
-    const storedExpiry = localStorage.getItem('gapi_expires_at');
-    const storedEmail = localStorage.getItem('gapi_user_email');
-    
-    if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry, 10)) {
-      this.accessToken = storedToken;
-      this.tokenExpiresAt = parseInt(storedExpiry, 10);
-      this.userEmail = storedEmail;
-    } else {
+    try {
+      const storedToken = localStorage.getItem('gapi_access_token');
+      const storedExpiry = localStorage.getItem('gapi_expires_at');
+      const storedEmail = localStorage.getItem('gapi_user_email');
+      if (storedEmail) this.lastUserEmail = storedEmail;
+
+      if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry, 10)) {
+        this.accessToken = storedToken;
+        this.tokenExpiresAt = parseInt(storedExpiry, 10);
+        this.userEmail = storedEmail;
+      } else {
+        this.clearLocalSession();
+      }
+    } catch (e) {
       this.clearLocalSession();
     }
   },
@@ -80,9 +85,11 @@ const GoogleSheetsService = {
     this.accessToken = null;
     this.tokenExpiresAt = null;
     this.userEmail = null;
-    localStorage.removeItem('gapi_access_token');
-    localStorage.removeItem('gapi_expires_at');
-    localStorage.removeItem('gapi_user_email');
+    try {
+      localStorage.removeItem('gapi_access_token');
+      localStorage.removeItem('gapi_expires_at');
+      localStorage.removeItem('gapi_user_email');
+    } catch (e) {}
   },
 
   /**
@@ -114,11 +121,13 @@ const GoogleSheetsService = {
           }
 
           this.accessToken = resp.access_token;
-          // Estimar expiración (normalmente 3600 segundos)
+          // Estimar expiración (normalmente 3600 segundos por política OAuth de Google)
           this.tokenExpiresAt = Date.now() + (resp.expires_in || 3500) * 1000;
-          
-          localStorage.setItem('gapi_access_token', this.accessToken);
-          localStorage.setItem('gapi_expires_at', this.tokenExpiresAt.toString());
+
+          try {
+            localStorage.setItem('gapi_access_token', this.accessToken);
+            localStorage.setItem('gapi_expires_at', this.tokenExpiresAt.toString());
+          } catch (e) {}
 
           // Obtener email del usuario
           await this.fetchUserProfile();
@@ -154,8 +163,9 @@ const GoogleSheetsService = {
       if (!initialized) return;
     }
 
-    // Solicitar token (abre el popup de selección de cuenta)
-    this.tokenClient.requestAccessToken({ prompt: '' });
+    // Solicitar token (abre el popup de Google con hint de cuenta si ya ingresó antes)
+    const hintEmail = this.userEmail || this.lastUserEmail || '';
+    this.tokenClient.requestAccessToken(hintEmail ? { prompt: '', hint: hintEmail } : { prompt: '' });
   },
 
   /**
@@ -169,6 +179,7 @@ const GoogleSheetsService = {
    * Cierra sesión localmente
    */
   logout() {
+    this.lastUserEmail = null;
     if (this.accessToken && typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
       try {
         google.accounts.oauth2.revoke(this.accessToken, () => {
@@ -196,7 +207,10 @@ const GoogleSheetsService = {
         const data = await res.json();
         this.userEmail = data.email || null;
         if (this.userEmail) {
-          localStorage.setItem('gapi_user_email', this.userEmail);
+          this.lastUserEmail = this.userEmail;
+          try {
+            localStorage.setItem('gapi_user_email', this.userEmail);
+          } catch (e) {}
         }
         return data;
       }

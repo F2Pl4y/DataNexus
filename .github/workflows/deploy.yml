@@ -24,21 +24,12 @@ jobs:
       - name: Descargar código
         uses: actions/checkout@v4
 
-      - name: Inyectar Config Pública (Google Client ID & Mapbox Token)
-        env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
-        run: |
-          if [ -n "$GOOGLE_CLIENT_ID" ]; then
-            sed -i "s|TU_CLIENT_ID_AQUI|${GOOGLE_CLIENT_ID}|g" js/config.js
-          fi
-          if [ -n "$MAPBOX_TOKEN" ]; then
-            sed -i "s|TU_MAPBOX_TOKEN_AQUI|${MAPBOX_TOKEN}|g" js/config.js
-          fi
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Validar sintaxis JS, ejecutar pruebas y aplicar versionado anti-caché
-        env:
-          SHORT_SHA: ${{ github.sha }}
+      - name: Validar sintaxis JS y ejecutar pruebas de seguridad
         run: |
           node -e '
             const fs = require("fs");
@@ -62,6 +53,35 @@ jobs:
             console.log(`✅ Sintaxis verificada en ${jsFiles.length} archivos JS.`);
 
             execFileSync("node", ["--test", "tests/security-and-core.test.js"], { stdio: "inherit" });
+          '
+
+      - name: Inyectar Config Pública y aplicar versionado anti-caché
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$GOOGLE_CLIENT_ID" ]; then
+            sed -i "s|TU_CLIENT_ID_AQUI|${GOOGLE_CLIENT_ID}|g" js/config.js
+          fi
+          if [ -n "$MAPBOX_TOKEN" ]; then
+            sed -i "s|TU_MAPBOX_TOKEN_AQUI|${MAPBOX_TOKEN}|g" js/config.js
+          fi
+          node --check js/config.js
+
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+
+            function walk(dir, extList, out = []) {
+              for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (ent.name === ".git" || ent.name === ".github" || ent.name === "node_modules" || ent.name === "tests") continue;
+                const full = path.join(dir, ent.name);
+                if (ent.isDirectory()) walk(full, extList, out);
+                else if (extList.some(ext => ent.name.toLowerCase().endsWith(ext))) out.push(full);
+              }
+              return out;
+            }
 
             const ver = (process.env.SHORT_SHA || Date.now().toString()).slice(0, 8);
             const htmlFiles = walk(".", [".html"]);

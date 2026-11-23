@@ -182,6 +182,7 @@ test('Seguridad en HTML y configuración pública: CSP, Referrer-Policy, SRI y s
 
   const configContent = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
   assert.match(configContent, /GEMINI_API_KEY:\s*'TU_GEMINI_API_KEY_AQUI'/);
+  assert.doesNotMatch(configContent, /AIza[0-9A-Za-z_-]{20,}/, 'config.js nunca debe contener claves privadas de Google/Gemini');
   assert.match(configContent, /DEFAULT_GOOGLE_CLIENT_ID:\s*'TU_CLIENT_ID_AQUI'/);
   assert.match(configContent, /MAPBOX_TOKEN:\s*'TU_MAPBOX_TOKEN_AQUI'/);
 });
